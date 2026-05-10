@@ -276,6 +276,10 @@ impl TranscriptSubscription {
     pub async fn next_live_delta(&mut self) -> Option<TranscriptDelta> {
         self.live.recv().await.ok()
     }
+
+    pub fn blocking_next_live_delta(&mut self) -> Option<TranscriptDelta> {
+        self.live.blocking_recv().ok()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

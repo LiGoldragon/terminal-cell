@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum TerminalCellError {
     #[error("pty operation failed: {0}")]
     Pty(String),

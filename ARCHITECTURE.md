@@ -7,9 +7,9 @@ viewers.*
 
 ## 0 - TL;DR
 
-`terminal-cell-lab` tests whether a small terminal owner can preserve native
-terminal behavior while still supporting reattachment with scrollback and
-programmatic input injection.
+`terminal-cell-lab` tests whether a daemon-owned terminal cell can preserve
+native terminal behavior while still supporting reattachment with scrollback,
+programmatic input injection, and GUI terminal viewers.
 
 The cell owns the child process group and PTY. Output bytes from the PTY master
 are appended to transcript truth before any viewer receives them. Viewers are
@@ -21,10 +21,12 @@ flowchart LR
     child["child process in PTY"] -->|"output bytes"| owner["TerminalCell"]
     owner --> transcript["TerminalTranscript"]
     owner --> projection["ScreenProjection"]
-    viewer["TerminalViewer"] -->|"input bytes"| owner
-    injector["Programmatic injector"] -->|"input bytes"| owner
-    owner -->|"input bytes"| child
-    owner -->|"replay + live deltas"| viewer
+    daemon["terminal-cell-lab-daemon"] --> owner
+    view["terminal-cell-lab-view in Ghostty"] -->|"viewer bytes"| daemon
+    send["terminal-cell-lab-send"] -->|"programmatic bytes"| daemon
+    capture["terminal-cell-lab-capture"] -->|"snapshot request"| daemon
+    daemon -->|"input bytes"| child
+    daemon -->|"replay + live deltas"| view
 ```
 
 ## 1 - Components
@@ -36,14 +38,27 @@ flowchart LR
 - `TranscriptSubscription` - replay plus live delta receiver for a viewer.
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
+- `TerminalCellSocketClient` - thin Unix-socket client used by command-line
+  tools and viewers.
+- `terminal-cell-lab-daemon` - daemon that owns the `TerminalCell` actor and
+  serves socket requests.
+- `terminal-cell-lab-send` / `capture` / `wait` - thin command-line clients.
+- `terminal-cell-lab-view` - attach client that replays transcript, subscribes
+  live, enables raw mode, and forwards keyboard bytes to the daemon.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
   the stateful witness.
 
 ## 2 - State and Ownership
 
+The daemon owns the root actor. Command-line tools and GUI viewers are clients:
+they parse arguments, send one socket request or open one subscription, render
+the reply, and exit or remain attached. The daemon waits for Kameo actor
+startup before binding/announcing the socket so clients cannot race the actor
+lifecycle.
+
 The actor owns mutable terminal state. Blocking PTY reads and child wait run in
 dedicated OS threads that push typed messages back to the actor. The transcript
-is owned by the actor, not by those threads and not by a viewer.
+is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 
 ## 3 - Constraints
 
@@ -59,6 +74,13 @@ is owned by the actor, not by those threads and not by a viewer.
 - Screen snapshots are derived from transcript bytes.
 - Blocking PTY reads are isolated outside actor handlers and push messages into
   the actor mailbox.
+- CLIs are daemon clients; they do not own the runtime or transcript.
+- A GUI terminal attaches by running the view client as the terminal command.
+- Ghostty witnesses use the app ID/class
+  `com.ligoldragon.terminalcellwitness` so Niri can target the window with
+  `open-focused false`.
+- Viewer readiness is a pushed event from the attached view process, not a
+  polling sleep.
 
 ## 4 - Witnesses
 
@@ -67,6 +89,11 @@ is owned by the actor, not by those threads and not by a viewer.
 - `screen_projection_is_derived_from_transcript`
 - `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
 - `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
+- `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
+- `attach_view_replays_transcript_without_owning_the_child`
+- `nix run .#ghostty-agent-witness` opens Ghostty, waits for view attachment,
+  injects a prompt through the daemon, waits for the response, and captures the
+  transcript artifact.
 
 ## Code Map
 
@@ -74,7 +101,9 @@ is owned by the actor, not by those threads and not by a viewer.
 src/lib.rs        public surface
 src/error.rs      typed errors
 src/session.rs    TerminalCell actor and terminal records
+src/socket.rs     tiny Unix-socket request/reply protocol
+src/client.rs     thin socket client used by CLIs/viewers
 src/snapshot.rs   vt100 screen projection
-src/bin/          deterministic terminal fixtures
+src/bin/          daemon, clients, view, and deterministic fixture
 tests/            architecture witnesses
 ```

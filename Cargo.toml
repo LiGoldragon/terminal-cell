@@ -13,6 +13,7 @@ name = "terminal_cell_lab"
 path = "src/lib.rs"
 
 [dependencies]
+crossterm    = "0.28"
 kameo        = { version = "0.20", features = ["macros"] }
 portable-pty = "0.8"
 thiserror    = "2"
