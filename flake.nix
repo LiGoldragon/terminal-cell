@@ -52,6 +52,16 @@
           };
         };
 
+        apps.agent-terminal-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-lab-agent-terminal-witness";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --test agent_terminal_witness -- --nocapture
+            '';
+          };
+        };
+
         devShells.default = pkgs.mkShell {
           name = "terminal-cell-lab";
           packages = [

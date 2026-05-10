@@ -8,5 +8,6 @@ Run the witness suite:
 
 ```sh
 nix flake check
+nix run .#session-witnesses
+nix run .#agent-terminal-witness
 ```
-

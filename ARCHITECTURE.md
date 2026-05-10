@@ -36,6 +36,8 @@ flowchart LR
 - `TranscriptSubscription` - replay plus live delta receiver for a viewer.
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
+- `agent-terminal-fixture` - deterministic agent-like terminal process used by
+  the stateful witness.
 
 ## 2 - State and Ownership
 
@@ -63,6 +65,8 @@ is owned by the actor, not by those threads and not by a viewer.
 - `detached_output_is_replayed_to_late_subscriber`
 - `programmatic_input_uses_the_same_pty_input_port`
 - `screen_projection_is_derived_from_transcript`
+- `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
+- `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
 
 ## Code Map
 
@@ -71,6 +75,6 @@ src/lib.rs        public surface
 src/error.rs      typed errors
 src/session.rs    TerminalCell actor and terminal records
 src/snapshot.rs   vt100 screen projection
+src/bin/          deterministic terminal fixtures
 tests/            architecture witnesses
 ```
-
