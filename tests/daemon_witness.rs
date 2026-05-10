@@ -203,3 +203,43 @@ fn viewer_input_stream_keeps_one_low_latency_input_path() {
     let transcript = daemon.capture_text();
     assert!(transcript.contains("agent-response: hello persistent viewer stream"));
 }
+
+#[test]
+fn input_gate_holds_human_bytes_during_programmatic_injection() {
+    let daemon = DaemonFixture::spawn_shell(
+        "input_gate",
+        "IFS= read -r first; printf 'first:%s\\n' \"$first\"; \
+         IFS= read -r second; printf 'second:%s\\n' \"$second\"",
+    );
+    let client = TerminalCellSocketClient::new(daemon.socket.clone());
+    let mut viewer = daemon.open_viewer_input_stream();
+
+    let lease = client.close_human_input().expect("human input gate closes");
+    viewer
+        .write_all(b"human-held-behind-gate\r")
+        .expect("viewer bytes are accepted while gate is closed");
+
+    client
+        .send_programmatic_input(b"persona-injection\r")
+        .expect("programmatic bytes write while gate is closed");
+    daemon.wait_for_text("first:persona-injection");
+
+    let release = client
+        .open_human_input(lease)
+        .expect("human input gate reopens");
+    assert_eq!(release.lease(), lease);
+    assert_eq!(release.held_byte_count(), "human-held-behind-gate\r".len());
+    daemon.wait_for_text("second:human-held-behind-gate");
+
+    let transcript = daemon.capture_text();
+    let programmatic = transcript
+        .find("first:persona-injection")
+        .expect("programmatic line appears");
+    let human = transcript
+        .find("second:human-held-behind-gate")
+        .expect("held human line appears");
+    assert!(
+        programmatic < human,
+        "programmatic input is written before held human input"
+    );
+}

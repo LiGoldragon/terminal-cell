@@ -2,7 +2,10 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use crate::{SocketReplyReader, SocketRequestWriter, TerminalSize};
+use crate::{
+    SocketReplyReader, SocketRequestWriter, TerminalInputGateLease, TerminalInputGateRelease,
+    TerminalSize,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TerminalCellSocketClient {
@@ -42,6 +45,21 @@ impl TerminalCellSocketClient {
         let mut stream = UnixStream::connect(&self.socket)?;
         SocketRequestWriter::new(&mut stream).write_viewer_input_stream_request()?;
         Ok(stream)
+    }
+
+    pub fn close_human_input(&self) -> io::Result<TerminalInputGateLease> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        SocketRequestWriter::new(&mut stream).write_close_human_input_request()?;
+        SocketReplyReader::new(&mut stream).read_gate_lease()
+    }
+
+    pub fn open_human_input(
+        &self,
+        lease: TerminalInputGateLease,
+    ) -> io::Result<TerminalInputGateRelease> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        SocketRequestWriter::new(&mut stream).write_open_human_input_request(lease)?;
+        SocketReplyReader::new(&mut stream).read_gate_release()
     }
 
     pub fn resize(&self, size: TerminalSize) -> io::Result<()> {

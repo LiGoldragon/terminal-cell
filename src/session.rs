@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
@@ -82,14 +83,14 @@ impl TerminalLaunch {
 pub struct TerminalCellStart {
     launch: TerminalLaunch,
     input_port: TerminalInputPort,
-    input_receiver: Receiver<TerminalInput>,
+    input_receiver: Receiver<TerminalInputCommand>,
 }
 
 impl TerminalCellStart {
     fn new(
         launch: TerminalLaunch,
         input_port: TerminalInputPort,
-        input_receiver: Receiver<TerminalInput>,
+        input_receiver: Receiver<TerminalInputCommand>,
     ) -> Self {
         Self {
             launch,
@@ -236,27 +237,200 @@ impl TerminalInput {
         self.bytes.as_slice()
     }
 
+    fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+
     pub const fn source(&self) -> InputSource {
         self.source
     }
 }
 
+enum TerminalInputCommand {
+    Write(TerminalInput),
+    CloseHumanInput(Sender<Result<TerminalInputGateLease, TerminalCellError>>),
+    OpenHumanInput(
+        TerminalInputGateLease,
+        Sender<Result<TerminalInputGateRelease, TerminalCellError>>,
+    ),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct TerminalInputGateSequence(u64);
+
+impl TerminalInputGateSequence {
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+
+    pub const fn into_u64(self) -> u64 {
+        self.0
+    }
+
+    fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TerminalInputGateLease {
+    sequence: TerminalInputGateSequence,
+}
+
+impl TerminalInputGateLease {
+    pub const fn new(sequence: TerminalInputGateSequence) -> Self {
+        Self { sequence }
+    }
+
+    pub const fn sequence(self) -> TerminalInputGateSequence {
+        self.sequence
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalInputGateRelease {
+    lease: TerminalInputGateLease,
+    held_byte_count: usize,
+}
+
+impl TerminalInputGateRelease {
+    pub const fn new(lease: TerminalInputGateLease, held_byte_count: usize) -> Self {
+        Self {
+            lease,
+            held_byte_count,
+        }
+    }
+
+    pub const fn lease(self) -> TerminalInputGateLease {
+        self.lease
+    }
+
+    pub const fn held_byte_count(self) -> usize {
+        self.held_byte_count
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TerminalInputGateState {
+    Open,
+    Closed(TerminalInputGateLease),
+}
+
+struct TerminalInputGate {
+    state: TerminalInputGateState,
+    next_sequence: TerminalInputGateSequence,
+    held_human_input: VecDeque<Vec<u8>>,
+}
+
+impl TerminalInputGate {
+    fn new() -> Self {
+        Self {
+            state: TerminalInputGateState::Open,
+            next_sequence: TerminalInputGateSequence::new(1),
+            held_human_input: VecDeque::new(),
+        }
+    }
+
+    fn close_human_input(&mut self) -> TerminalInputGateLease {
+        match self.state {
+            TerminalInputGateState::Closed(lease) => lease,
+            TerminalInputGateState::Open => {
+                let lease = TerminalInputGateLease::new(self.next_sequence);
+                self.next_sequence = self.next_sequence.next();
+                self.state = TerminalInputGateState::Closed(lease);
+                lease
+            }
+        }
+    }
+
+    fn open_human_input(
+        &mut self,
+        lease: TerminalInputGateLease,
+        writer: &mut dyn Write,
+    ) -> Result<TerminalInputGateRelease, TerminalCellError> {
+        match self.state {
+            TerminalInputGateState::Closed(active) if active == lease => {
+                let held_byte_count = self.held_byte_count();
+                self.flush_held_human_input(writer)?;
+                self.state = TerminalInputGateState::Open;
+                Ok(TerminalInputGateRelease::new(lease, held_byte_count))
+            }
+            TerminalInputGateState::Closed(_) | TerminalInputGateState::Open => {
+                Err(TerminalCellError::StaleInputGateLease)
+            }
+        }
+    }
+
+    fn write_input(
+        &mut self,
+        writer: &mut dyn Write,
+        input: TerminalInput,
+    ) -> Result<(), TerminalCellError> {
+        match (self.state, input.source()) {
+            (TerminalInputGateState::Closed(_), InputSource::Viewer) => {
+                self.held_human_input.push_back(input.into_bytes());
+                Ok(())
+            }
+            _ => Self::write_bytes(writer, input.bytes()),
+        }
+    }
+
+    fn held_byte_count(&self) -> usize {
+        self.held_human_input.iter().map(std::vec::Vec::len).sum()
+    }
+
+    fn flush_held_human_input(&mut self, writer: &mut dyn Write) -> Result<(), TerminalCellError> {
+        while let Some(bytes) = self.held_human_input.pop_front() {
+            Self::write_bytes(writer, &bytes)?;
+        }
+        Ok(())
+    }
+
+    fn write_bytes(writer: &mut dyn Write, bytes: &[u8]) -> Result<(), TerminalCellError> {
+        writer.write_all(bytes).map_err(TerminalCellError::pty)?;
+        writer.flush().map_err(TerminalCellError::pty)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TerminalInputPort {
-    sender: Sender<TerminalInput>,
+    sender: Sender<TerminalInputCommand>,
 }
 
 impl TerminalInputPort {
-    fn new(sender: Sender<TerminalInput>) -> Self {
+    fn new(sender: Sender<TerminalInputCommand>) -> Self {
         Self { sender }
     }
 
     pub fn accept(&self, input: TerminalInput) -> Result<InputAcceptance, TerminalCellError> {
         let source = input.source();
         self.sender
-            .send(input)
+            .send(TerminalInputCommand::Write(input))
             .map_err(|_| TerminalCellError::InputClosed)?;
         Ok(InputAcceptance::new(source))
+    }
+
+    pub fn close_human_input(&self) -> Result<TerminalInputGateLease, TerminalCellError> {
+        let (sender, receiver) = mpsc::channel();
+        self.sender
+            .send(TerminalInputCommand::CloseHumanInput(sender))
+            .map_err(|_| TerminalCellError::InputClosed)?;
+        receiver
+            .recv()
+            .map_err(|_| TerminalCellError::InputClosed)?
+    }
+
+    pub fn open_human_input(
+        &self,
+        lease: TerminalInputGateLease,
+    ) -> Result<TerminalInputGateRelease, TerminalCellError> {
+        let (sender, receiver) = mpsc::channel();
+        self.sender
+            .send(TerminalInputCommand::OpenHumanInput(lease, sender))
+            .map_err(|_| TerminalCellError::InputClosed)?;
+        receiver
+            .recv()
+            .map_err(|_| TerminalCellError::InputClosed)?
     }
 }
 
@@ -510,12 +684,24 @@ impl Actor for TerminalCell {
         thread::Builder::new()
             .name("terminal-cell-input".to_string())
             .spawn(move || {
-                while let Ok(input) = input_receiver.recv() {
-                    if input_writer.write_all(input.bytes()).is_err() {
-                        break;
-                    }
-                    if input_writer.flush().is_err() {
-                        break;
+                let mut input_gate = TerminalInputGate::new();
+                while let Ok(command) = input_receiver.recv() {
+                    match command {
+                        TerminalInputCommand::Write(input) => {
+                            if input_gate
+                                .write_input(input_writer.as_mut(), input)
+                                .is_err()
+                            {
+                                break;
+                            }
+                        }
+                        TerminalInputCommand::CloseHumanInput(reply) => {
+                            let _ = reply.send(Ok(input_gate.close_human_input()));
+                        }
+                        TerminalInputCommand::OpenHumanInput(lease, reply) => {
+                            let _ = reply
+                                .send(input_gate.open_human_input(lease, input_writer.as_mut()));
+                        }
                     }
                 }
             })

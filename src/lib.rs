@@ -12,9 +12,10 @@ pub use error::TerminalCellError;
 pub use session::{
     InputAcceptance, InputSource, ScreenProjectionRequest, TerminalCell, TerminalCellSession,
     TerminalCellStart, TerminalCommand, TerminalExit, TerminalExitRequest, TerminalInput,
-    TerminalInputPort, TerminalLaunch, TerminalSequence, TerminalSize, TranscriptDelta,
-    TranscriptSnapshot, TranscriptSnapshotRequest, TranscriptSubscription,
-    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
+    TerminalInputGateLease, TerminalInputGateRelease, TerminalInputGateSequence, TerminalInputPort,
+    TerminalLaunch, TerminalSequence, TerminalSize, TranscriptDelta, TranscriptSnapshot,
+    TranscriptSnapshotRequest, TranscriptSubscription, TranscriptSubscriptionRequest,
+    WaitForTerminalExit, WaitForTranscriptText,
 };
 pub use snapshot::ScreenProjection;
 pub use socket::{

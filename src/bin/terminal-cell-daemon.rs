@@ -193,6 +193,8 @@ impl TerminalCellConnection {
             SocketRequest::SubscribeFromBeginning => self.stream_subscription(),
             SocketRequest::Input(input) => self.write_input(input),
             SocketRequest::ViewerInputStream => self.stream_viewer_input(),
+            SocketRequest::CloseHumanInput => self.close_human_input(),
+            SocketRequest::OpenHumanInput(lease) => self.open_human_input(lease),
             SocketRequest::Resize(size) => self.write_resize(size),
             SocketRequest::Wait(wait) => self.wait_for_text(wait),
             SocketRequest::WaitExit => self.wait_for_exit(),
@@ -243,6 +245,22 @@ impl TerminalCellConnection {
                 .map_err(Self::terminal_error)?;
         }
         Ok(())
+    }
+
+    fn close_human_input(&mut self) -> io::Result<()> {
+        let lease = self
+            .input_port
+            .close_human_input()
+            .map_err(Self::terminal_error)?;
+        SocketReplyWriter::new(&mut self.stream).write_gate_lease(lease)
+    }
+
+    fn open_human_input(&mut self, lease: terminal_cell::TerminalInputGateLease) -> io::Result<()> {
+        let release = self
+            .input_port
+            .open_human_input(lease)
+            .map_err(Self::terminal_error)?;
+        SocketReplyWriter::new(&mut self.stream).write_gate_release(release)
     }
 
     fn write_resize(&mut self, size: TerminalSize) -> io::Result<()> {

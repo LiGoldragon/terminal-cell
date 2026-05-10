@@ -18,6 +18,7 @@ The current implementation proves several useful pieces:
 - real Pi launch under Ghostty;
 - transcript capture;
 - programmatic input injection;
+- a PTY-writer input gate for non-interleaved Persona injection;
 - child-exit observation;
 - resize plumbing.
 
@@ -98,6 +99,10 @@ These are the checked-in components of the failed spike:
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
 - `TerminalInputPort` - typed ingress to the PTY writer.
+- `TerminalInputGateLease` - writer-side lease proving human input is closed
+  before a programmatic injection sequence.
+- `TerminalInputGateRelease` - writer-side release record naming the lease and
+  how many held human bytes were flushed when the gate reopened.
 - `TerminalExit` - recorded child status.
 - `TerminalCellSocketClient` - Unix-socket client used by command-line tools
   and viewers.
@@ -151,6 +156,7 @@ Current useful witnesses:
 - `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
 - `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
 - `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
+- `input_gate_holds_human_bytes_during_programmatic_injection`
 - `daemon_exposes_terminal_exit_status`
 - `daemon_resizes_the_owned_pty`
 - `nix run .#live-coding-agent-witness`

@@ -1,16 +1,23 @@
 use std::io::{self, Read, Write};
 
-use crate::{InputSource, TerminalInput, TerminalSize, WaitForTranscriptText};
+use crate::{
+    InputSource, TerminalInput, TerminalInputGateLease, TerminalInputGateRelease,
+    TerminalInputGateSequence, TerminalSize, WaitForTranscriptText,
+};
 
 const CAPTURE_REQUEST: u8 = b'C';
 const SUBSCRIBE_REQUEST: u8 = b'S';
 const PROGRAMMATIC_INPUT_REQUEST: u8 = b'P';
 const VIEWER_INPUT_REQUEST: u8 = b'V';
 const VIEWER_INPUT_STREAM_REQUEST: u8 = b'I';
+const CLOSE_HUMAN_INPUT_REQUEST: u8 = b'G';
+const OPEN_HUMAN_INPUT_REQUEST: u8 = b'O';
 const RESIZE_REQUEST: u8 = b'R';
 const WAIT_REQUEST: u8 = b'W';
 const WAIT_EXIT_REQUEST: u8 = b'X';
 const ACCEPTANCE_REPLY: u8 = b'A';
+const GATE_LEASE_REPLY: u8 = b'L';
+const GATE_RELEASE_REPLY: u8 = b'U';
 const WAIT_SATISFIED_REPLY: u8 = b'Y';
 const MAXIMUM_FRAME_LENGTH: u64 = 16 * 1024 * 1024;
 
@@ -20,6 +27,8 @@ pub enum SocketRequest {
     SubscribeFromBeginning,
     Input(TerminalInput),
     ViewerInputStream,
+    CloseHumanInput,
+    OpenHumanInput(TerminalInputGateLease),
     Resize(TerminalSize),
     Wait(WaitForTranscriptText),
     WaitExit,
@@ -58,6 +67,13 @@ where
                 )))
             }
             VIEWER_INPUT_STREAM_REQUEST => Ok(SocketRequest::ViewerInputStream),
+            CLOSE_HUMAN_INPUT_REQUEST => Ok(SocketRequest::CloseHumanInput),
+            OPEN_HUMAN_INPUT_REQUEST => {
+                let sequence = TerminalInputGateSequence::new(self.read_u64()?);
+                Ok(SocketRequest::OpenHumanInput(TerminalInputGateLease::new(
+                    sequence,
+                )))
+            }
             RESIZE_REQUEST => {
                 let rows = self.read_u16()?;
                 let columns = self.read_u16()?;
@@ -140,6 +156,20 @@ where
         self.writer.flush()
     }
 
+    pub fn write_close_human_input_request(&mut self) -> io::Result<()> {
+        self.writer.write_all(&[CLOSE_HUMAN_INPUT_REQUEST])?;
+        self.writer.flush()
+    }
+
+    pub fn write_open_human_input_request(
+        &mut self,
+        lease: TerminalInputGateLease,
+    ) -> io::Result<()> {
+        self.writer.write_all(&[OPEN_HUMAN_INPUT_REQUEST])?;
+        self.write_u64(lease.sequence().into_u64())?;
+        self.writer.flush()
+    }
+
     pub fn write_resize_request(&mut self, size: TerminalSize) -> io::Result<()> {
         self.writer.write_all(&[RESIZE_REQUEST])?;
         self.write_u16(size.rows())?;
@@ -190,6 +220,26 @@ where
 
     pub fn read_acceptance(&mut self) -> io::Result<()> {
         self.read_expected_tag(ACCEPTANCE_REPLY)
+    }
+
+    pub fn read_gate_lease(&mut self) -> io::Result<TerminalInputGateLease> {
+        self.read_expected_tag(GATE_LEASE_REPLY)?;
+        Ok(TerminalInputGateLease::new(TerminalInputGateSequence::new(
+            self.read_u64()?,
+        )))
+    }
+
+    pub fn read_gate_release(&mut self) -> io::Result<TerminalInputGateRelease> {
+        self.read_expected_tag(GATE_RELEASE_REPLY)?;
+        let lease = TerminalInputGateLease::new(TerminalInputGateSequence::new(self.read_u64()?));
+        let held_byte_count = self.read_u64()?;
+        let held_byte_count = usize::try_from(held_byte_count).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("gate release held byte count overflowed usize: {error}"),
+            )
+        })?;
+        Ok(TerminalInputGateRelease::new(lease, held_byte_count))
     }
 
     pub fn read_wait_satisfied(&mut self) -> io::Result<()> {
@@ -258,6 +308,19 @@ where
 
     pub fn write_acceptance(&mut self) -> io::Result<()> {
         self.writer.write_all(&[ACCEPTANCE_REPLY])?;
+        self.writer.flush()
+    }
+
+    pub fn write_gate_lease(&mut self, lease: TerminalInputGateLease) -> io::Result<()> {
+        self.writer.write_all(&[GATE_LEASE_REPLY])?;
+        self.write_u64(lease.sequence().into_u64())?;
+        self.writer.flush()
+    }
+
+    pub fn write_gate_release(&mut self, release: TerminalInputGateRelease) -> io::Result<()> {
+        self.writer.write_all(&[GATE_RELEASE_REPLY])?;
+        self.write_u64(release.lease().sequence().into_u64())?;
+        self.write_u64(release.held_byte_count() as u64)?;
         self.writer.flush()
     }
 
