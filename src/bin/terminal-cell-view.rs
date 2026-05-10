@@ -90,15 +90,15 @@ impl TerminalViewer {
 
     fn attach(&self) -> ViewResult<()> {
         self.resize_attached_terminal()?;
-        let mut subscription = self.client.subscribe_from_beginning()?;
-        let mut input_stream = self.client.open_viewer_input_stream()?;
+        let mut attach_stream = self.client.open_attach_stream()?;
+        let mut output_stream = attach_stream.try_clone()?;
         self.readiness.confirm_control_plane(&self.client)?;
         self.readiness.announce()?;
         let output = thread::Builder::new()
             .name("terminal-cell-view-output".to_string())
             .spawn(move || -> io::Result<()> {
                 let mut stdout = io::stdout();
-                io::copy(&mut subscription, &mut stdout)?;
+                io::copy(&mut output_stream, &mut stdout)?;
                 stdout.flush()
             })?;
 
@@ -110,7 +110,7 @@ impl TerminalViewer {
             if count == 0 {
                 break;
             }
-            input_stream.write_all(&buffer[..count])?;
+            attach_stream.write_all(&buffer[..count])?;
         }
 
         output

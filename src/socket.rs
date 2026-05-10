@@ -7,9 +7,9 @@ use crate::{
 
 const CAPTURE_REQUEST: u8 = b'C';
 const SUBSCRIBE_REQUEST: u8 = b'S';
+const ATTACH_REQUEST: u8 = b'T';
 const PROGRAMMATIC_INPUT_REQUEST: u8 = b'P';
 const VIEWER_INPUT_REQUEST: u8 = b'V';
-const VIEWER_INPUT_STREAM_REQUEST: u8 = b'I';
 const CLOSE_HUMAN_INPUT_REQUEST: u8 = b'G';
 const OPEN_HUMAN_INPUT_REQUEST: u8 = b'O';
 const RESIZE_REQUEST: u8 = b'R';
@@ -25,8 +25,8 @@ const MAXIMUM_FRAME_LENGTH: u64 = 16 * 1024 * 1024;
 pub enum SocketRequest {
     Capture,
     SubscribeFromBeginning,
+    Attach,
     Input(TerminalInput),
-    ViewerInputStream,
     CloseHumanInput,
     OpenHumanInput(TerminalInputGateLease),
     Resize(TerminalSize),
@@ -52,6 +52,7 @@ where
         match tag[0] {
             CAPTURE_REQUEST => Ok(SocketRequest::Capture),
             SUBSCRIBE_REQUEST => Ok(SocketRequest::SubscribeFromBeginning),
+            ATTACH_REQUEST => Ok(SocketRequest::Attach),
             PROGRAMMATIC_INPUT_REQUEST => {
                 let bytes = self.read_frame()?;
                 Ok(SocketRequest::Input(TerminalInput::new(
@@ -66,7 +67,6 @@ where
                     InputSource::Viewer,
                 )))
             }
-            VIEWER_INPUT_STREAM_REQUEST => Ok(SocketRequest::ViewerInputStream),
             CLOSE_HUMAN_INPUT_REQUEST => Ok(SocketRequest::CloseHumanInput),
             OPEN_HUMAN_INPUT_REQUEST => {
                 let sequence = TerminalInputGateSequence::new(self.read_u64()?);
@@ -139,6 +139,11 @@ where
         self.writer.flush()
     }
 
+    pub fn write_attach_request(&mut self) -> io::Result<()> {
+        self.writer.write_all(&[ATTACH_REQUEST])?;
+        self.writer.flush()
+    }
+
     pub fn write_programmatic_input(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.writer.write_all(&[PROGRAMMATIC_INPUT_REQUEST])?;
         self.write_frame(bytes)?;
@@ -148,11 +153,6 @@ where
     pub fn write_viewer_input(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.writer.write_all(&[VIEWER_INPUT_REQUEST])?;
         self.write_frame(bytes)?;
-        self.writer.flush()
-    }
-
-    pub fn write_viewer_input_stream_request(&mut self) -> io::Result<()> {
-        self.writer.write_all(&[VIEWER_INPUT_STREAM_REQUEST])?;
         self.writer.flush()
     }
 

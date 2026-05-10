@@ -10,6 +10,8 @@ pub enum TerminalCellError {
     MissingPtyMaster,
     #[error("terminal input port is closed")]
     InputClosed,
+    #[error("terminal output port is closed")]
+    OutputClosed,
     #[error("terminal input gate lease is stale")]
     StaleInputGateLease,
 }

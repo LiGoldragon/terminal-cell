@@ -12,8 +12,8 @@ use tokio::runtime::Handle;
 
 use terminal_cell::{
     InputSource, SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell,
-    TerminalCommand, TerminalInput, TerminalInputPort, TerminalLaunch, TerminalSize,
-    TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
+    TerminalCommand, TerminalInput, TerminalInputPort, TerminalLaunch, TerminalOutputPort,
+    TerminalSize, TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
     WaitForTranscriptText,
 };
 
@@ -80,6 +80,7 @@ impl TerminalCellDaemon {
         let session = TerminalCell::spawn_session(self.launch);
         let terminal = session.actor();
         let input_port = session.input_port();
+        let output_port = session.output_port();
         terminal
             .wait_for_startup_result()
             .await
@@ -93,7 +94,7 @@ impl TerminalCellDaemon {
         io::stdout().flush()?;
 
         tokio::task::spawn_blocking(move || {
-            TerminalCellDaemonLoop::new(listener, terminal, input_port, runtime).run()
+            TerminalCellDaemonLoop::new(listener, terminal, input_port, output_port, runtime).run()
         })
         .await??;
         Ok(())
@@ -126,6 +127,7 @@ struct TerminalCellDaemonLoop {
     listener: UnixListener,
     terminal: ActorRef<TerminalCell>,
     input_port: TerminalInputPort,
+    output_port: TerminalOutputPort,
     runtime: Handle,
 }
 
@@ -134,12 +136,14 @@ impl TerminalCellDaemonLoop {
         listener: UnixListener,
         terminal: ActorRef<TerminalCell>,
         input_port: TerminalInputPort,
+        output_port: TerminalOutputPort,
         runtime: Handle,
     ) -> Self {
         Self {
             listener,
             terminal,
             input_port,
+            output_port,
             runtime,
         }
     }
@@ -149,12 +153,19 @@ impl TerminalCellDaemonLoop {
             let stream = incoming?;
             let terminal = self.terminal.clone();
             let input_port = self.input_port.clone();
+            let output_port = self.output_port.clone();
             let runtime = self.runtime.clone();
             thread::Builder::new()
                 .name("terminal-cell-connection".to_string())
                 .spawn(move || {
-                    if let Err(error) =
-                        TerminalCellConnection::new(stream, terminal, input_port, runtime).run()
+                    if let Err(error) = TerminalCellConnection::new(
+                        stream,
+                        terminal,
+                        input_port,
+                        output_port,
+                        runtime,
+                    )
+                    .run()
                     {
                         eprintln!("terminal cell connection failed: {error}");
                     }
@@ -168,6 +179,7 @@ struct TerminalCellConnection {
     stream: UnixStream,
     terminal: ActorRef<TerminalCell>,
     input_port: TerminalInputPort,
+    output_port: TerminalOutputPort,
     runtime: Handle,
 }
 
@@ -176,12 +188,14 @@ impl TerminalCellConnection {
         stream: UnixStream,
         terminal: ActorRef<TerminalCell>,
         input_port: TerminalInputPort,
+        output_port: TerminalOutputPort,
         runtime: Handle,
     ) -> Self {
         Self {
             stream,
             terminal,
             input_port,
+            output_port,
             runtime,
         }
     }
@@ -191,8 +205,8 @@ impl TerminalCellConnection {
         match request {
             SocketRequest::Capture => self.write_snapshot(),
             SocketRequest::SubscribeFromBeginning => self.stream_subscription(),
+            SocketRequest::Attach => self.attach_viewer(),
             SocketRequest::Input(input) => self.write_input(input),
-            SocketRequest::ViewerInputStream => self.stream_viewer_input(),
             SocketRequest::CloseHumanInput => self.close_human_input(),
             SocketRequest::OpenHumanInput(lease) => self.open_human_input(lease),
             SocketRequest::Resize(size) => self.write_resize(size),
@@ -221,17 +235,18 @@ impl TerminalCellConnection {
         Ok(())
     }
 
-    fn write_input(&mut self, input: TerminalInput) -> io::Result<()> {
-        let acceptance = self
-            .input_port
-            .accept(input)
-            .map_err(Self::terminal_error)?;
-        let _accepted_source = acceptance.source();
-        SocketReplyWriter::new(&mut self.stream).write_acceptance()
-    }
+    fn attach_viewer(&mut self) -> io::Result<()> {
+        let snapshot = self.snapshot()?;
+        if !snapshot.bytes().is_empty() {
+            self.stream.write_all(snapshot.bytes())?;
+            self.stream.flush()?;
+        }
 
-    fn stream_viewer_input(&mut self) -> io::Result<()> {
-        let mut buffer = [0_u8; 4096];
+        self.output_port
+            .attach(self.stream.try_clone()?)
+            .map_err(Self::terminal_error)?;
+
+        let mut buffer = [0_u8; 8192];
         loop {
             let count = self.stream.read(&mut buffer)?;
             if count == 0 {
@@ -245,6 +260,15 @@ impl TerminalCellConnection {
                 .map_err(Self::terminal_error)?;
         }
         Ok(())
+    }
+
+    fn write_input(&mut self, input: TerminalInput) -> io::Result<()> {
+        let acceptance = self
+            .input_port
+            .accept(input)
+            .map_err(Self::terminal_error)?;
+        let _accepted_source = acceptance.source();
+        SocketReplyWriter::new(&mut self.stream).write_acceptance()
     }
 
     fn close_human_input(&mut self) -> io::Result<()> {

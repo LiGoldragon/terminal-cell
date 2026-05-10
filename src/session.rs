@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::io::{Read, Write};
+use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
@@ -84,6 +85,8 @@ pub struct TerminalCellStart {
     launch: TerminalLaunch,
     input_port: TerminalInputPort,
     input_receiver: Receiver<TerminalInputCommand>,
+    output_port: TerminalOutputPort,
+    output_receiver: Receiver<TerminalOutputCommand>,
 }
 
 impl TerminalCellStart {
@@ -91,11 +94,15 @@ impl TerminalCellStart {
         launch: TerminalLaunch,
         input_port: TerminalInputPort,
         input_receiver: Receiver<TerminalInputCommand>,
+        output_port: TerminalOutputPort,
+        output_receiver: Receiver<TerminalOutputCommand>,
     ) -> Self {
         Self {
             launch,
             input_port,
             input_receiver,
+            output_port,
+            output_receiver,
         }
     }
 }
@@ -435,14 +442,96 @@ impl TerminalInputPort {
 }
 
 #[derive(Debug, Clone)]
+pub struct TerminalOutputPort {
+    sender: Sender<TerminalOutputCommand>,
+}
+
+impl TerminalOutputPort {
+    fn new(sender: Sender<TerminalOutputCommand>) -> Self {
+        Self { sender }
+    }
+
+    fn write_bytes(&self, bytes: Vec<u8>) -> Result<(), TerminalCellError> {
+        self.sender
+            .send(TerminalOutputCommand::Bytes(bytes))
+            .map_err(|_| TerminalCellError::OutputClosed)
+    }
+
+    pub fn attach(&self, stream: UnixStream) -> Result<(), TerminalCellError> {
+        let (sender, receiver) = mpsc::channel();
+        self.sender
+            .send(TerminalOutputCommand::Attach(stream, sender))
+            .map_err(|_| TerminalCellError::OutputClosed)?;
+        receiver
+            .recv()
+            .map_err(|_| TerminalCellError::OutputClosed)?
+    }
+}
+
+enum TerminalOutputCommand {
+    Bytes(Vec<u8>),
+    Attach(UnixStream, Sender<Result<(), TerminalCellError>>),
+}
+
+struct TerminalOutputFanout {
+    actor: ActorRef<TerminalCell>,
+    viewers: Vec<UnixStream>,
+}
+
+impl TerminalOutputFanout {
+    fn new(actor: ActorRef<TerminalCell>) -> Self {
+        Self {
+            actor,
+            viewers: Vec::new(),
+        }
+    }
+
+    fn run(&mut self, receiver: Receiver<TerminalOutputCommand>) {
+        while let Ok(command) = receiver.recv() {
+            match command {
+                TerminalOutputCommand::Bytes(bytes) => self.write_bytes(bytes),
+                TerminalOutputCommand::Attach(stream, reply) => {
+                    self.viewers.push(stream);
+                    let _ = reply.send(Ok(()));
+                }
+            }
+        }
+    }
+
+    fn write_bytes(&mut self, bytes: Vec<u8>) {
+        let mut active_viewers = Vec::new();
+        for mut viewer in self.viewers.drain(..) {
+            if viewer
+                .write_all(&bytes)
+                .and_then(|_| viewer.flush())
+                .is_ok()
+            {
+                active_viewers.push(viewer);
+            }
+        }
+        self.viewers = active_viewers;
+        let _ = self.actor.tell(TerminalOutput::new(bytes)).try_send();
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TerminalCellSession {
     actor: ActorRef<TerminalCell>,
     input_port: TerminalInputPort,
+    output_port: TerminalOutputPort,
 }
 
 impl TerminalCellSession {
-    fn new(actor: ActorRef<TerminalCell>, input_port: TerminalInputPort) -> Self {
-        Self { actor, input_port }
+    fn new(
+        actor: ActorRef<TerminalCell>,
+        input_port: TerminalInputPort,
+        output_port: TerminalOutputPort,
+    ) -> Self {
+        Self {
+            actor,
+            input_port,
+            output_port,
+        }
     }
 
     pub fn actor(&self) -> ActorRef<TerminalCell> {
@@ -451,6 +540,10 @@ impl TerminalCellSession {
 
     pub fn input_port(&self) -> TerminalInputPort {
         self.input_port.clone()
+    }
+
+    pub fn output_port(&self) -> TerminalOutputPort {
+        self.output_port.clone()
     }
 }
 
@@ -629,10 +722,18 @@ impl TerminalCell {
     }
 
     pub fn spawn_session(launch: TerminalLaunch) -> TerminalCellSession {
-        let (sender, receiver) = mpsc::channel();
-        let input_port = TerminalInputPort::new(sender);
-        let actor = Self::spawn(TerminalCellStart::new(launch, input_port.clone(), receiver));
-        TerminalCellSession::new(actor, input_port)
+        let (input_sender, input_receiver) = mpsc::channel();
+        let (output_sender, output_receiver) = mpsc::channel();
+        let input_port = TerminalInputPort::new(input_sender);
+        let output_port = TerminalOutputPort::new(output_sender);
+        let actor = Self::spawn(TerminalCellStart::new(
+            launch,
+            input_port.clone(),
+            input_receiver,
+            output_port.clone(),
+            output_receiver,
+        ));
+        TerminalCellSession::new(actor, input_port, output_port)
     }
 
     fn notify_waiters(&mut self) {
@@ -679,6 +780,8 @@ impl Actor for TerminalCell {
             .map_err(TerminalCellError::pty)?;
         let mut input_writer = pair.master.take_writer().map_err(TerminalCellError::pty)?;
         let input_receiver = args.input_receiver;
+        let output_port = args.output_port;
+        let output_receiver = args.output_receiver;
         drop(pair.slave);
 
         thread::Builder::new()
@@ -707,21 +810,32 @@ impl Actor for TerminalCell {
             })
             .expect("terminal input thread starts");
 
-        let output_ref = actor_ref.clone();
+        let output_fanout_ref = actor_ref.clone();
         thread::Builder::new()
-            .name("terminal-cell-output".to_string())
+            .name("terminal-cell-output-fanout".to_string())
+            .spawn(move || {
+                TerminalOutputFanout::new(output_fanout_ref).run(output_receiver);
+            })
+            .expect("terminal output fanout thread starts");
+
+        let output_reader_port = output_port;
+        thread::Builder::new()
+            .name("terminal-cell-output-reader".to_string())
             .spawn(move || {
                 let mut buffer = [0_u8; 8192];
                 while let Ok(count) = reader.read(&mut buffer) {
                     if count == 0 {
                         break;
                     }
-                    let _ = output_ref
-                        .tell(TerminalOutput::new(buffer[..count].to_vec()))
-                        .try_send();
+                    if output_reader_port
+                        .write_bytes(buffer[..count].to_vec())
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
             })
-            .expect("terminal output thread starts");
+            .expect("terminal output reader thread starts");
 
         let exit_ref = actor_ref;
         thread::Builder::new()

@@ -1,8 +1,9 @@
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::time::Duration;
 
 use terminal_cell::{TerminalCellSocketClient, TerminalSize};
 
@@ -88,10 +89,10 @@ impl DaemonFixture {
             .expect("resize request accepted");
     }
 
-    fn open_viewer_input_stream(&self) -> std::os::unix::net::UnixStream {
+    fn open_attach_stream(&self) -> std::os::unix::net::UnixStream {
         TerminalCellSocketClient::new(&self.socket)
-            .open_viewer_input_stream()
-            .expect("viewer input stream opened")
+            .open_attach_stream()
+            .expect("attach stream opened")
     }
 
     fn capture_text(&self) -> String {
@@ -190,18 +191,47 @@ fn daemon_resizes_the_owned_pty() {
 }
 
 #[test]
-fn viewer_input_stream_keeps_one_low_latency_input_path() {
-    let daemon = DaemonFixture::spawn("viewer-stream");
+fn attach_stream_is_raw_bidirectional_byte_path() {
+    let daemon = DaemonFixture::spawn("attach-stream");
 
     daemon.wait_for_text("agent-ready");
-    let mut stream = daemon.open_viewer_input_stream();
+    let mut stream = daemon.open_attach_stream();
     stream
-        .write_all(b"hello persistent viewer stream\r")
-        .expect("viewer stream accepts input bytes");
-    daemon.wait_for_text("agent-response: hello persistent viewer stream");
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .expect("attach stream read timeout set");
+
+    let mut output = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    for _ in 0..8 {
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => output.extend_from_slice(&buffer[..count]),
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                break;
+            }
+            Err(error) => panic!("attach stream read failed: {error}"),
+        }
+        if String::from_utf8_lossy(&output).contains("agent-ready") {
+            break;
+        }
+    }
+    assert!(
+        String::from_utf8_lossy(&output).contains("agent-ready"),
+        "attached stream emits transcript replay before live bytes"
+    );
+
+    stream
+        .write_all(b"hello raw attach stream\r")
+        .expect("attach stream accepts input bytes");
+    daemon.wait_for_text("agent-response: hello raw attach stream");
 
     let transcript = daemon.capture_text();
-    assert!(transcript.contains("agent-response: hello persistent viewer stream"));
+    assert!(transcript.contains("agent-response: hello raw attach stream"));
 }
 
 #[test]
@@ -212,7 +242,7 @@ fn input_gate_holds_human_bytes_during_programmatic_injection() {
          IFS= read -r second; printf 'second:%s\\n' \"$second\"",
     );
     let client = TerminalCellSocketClient::new(daemon.socket.clone());
-    let mut viewer = daemon.open_viewer_input_stream();
+    let mut viewer = daemon.open_attach_stream();
 
     let lease = client.close_human_input().expect("human input gate closes");
     viewer

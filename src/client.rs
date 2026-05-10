@@ -41,9 +41,9 @@ impl TerminalCellSocketClient {
         SocketReplyReader::new(&mut stream).read_acceptance()
     }
 
-    pub fn open_viewer_input_stream(&self) -> io::Result<UnixStream> {
+    pub fn open_attach_stream(&self) -> io::Result<UnixStream> {
         let mut stream = UnixStream::connect(&self.socket)?;
-        SocketRequestWriter::new(&mut stream).write_viewer_input_stream_request()?;
+        SocketRequestWriter::new(&mut stream).write_attach_request()?;
         Ok(stream)
     }
 

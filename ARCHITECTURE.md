@@ -1,8 +1,7 @@
 # terminal-cell - architecture
 
-*Durable terminal session experiments. The checked-in live viewer is a failed
-relay spike; the next viable attach boundary is an abduco-like byte pump with
-side-channel observers.*
+*Durable terminal session experiments. The live viewer uses an abduco-like byte
+pump while transcript and control state remain side-channel concerns.*
 
 ---
 
@@ -21,10 +20,10 @@ The current implementation proves several useful pieces:
 - a PTY-writer input gate for non-interleaved Persona injection;
 - child-exit observation;
 - resize plumbing.
+- an attach stream that carries raw viewer bytes in both directions.
 
-It does not prove a usable live attach primitive. Manual Pi testing in Ghostty
-showed slow, dropped, and eventually stalled keyboard interaction. The failed
-path is:
+The previous live-viewer path was rejected after manual Pi testing in Ghostty
+showed slow, dropped, and eventually stalled keyboard interaction:
 
 ```text
 Ghostty tty -> terminal-cell-view -> socket protocol -> daemon -> child PTY
@@ -35,7 +34,7 @@ That path puts terminal bytes behind application-level relay, transcript
 subscription, and actor/control-plane scheduling. It is the wrong boundary for
 human TUI interaction.
 
-The next architecture is:
+The current live path is:
 
 ```text
 Ghostty tty <-> attach pump <-> daemon byte pump <-> child PTY
@@ -64,8 +63,8 @@ Command-line tools and GUI frontends are clients.
 The live byte pump owns the latency-sensitive path:
 
 ```text
-attach stdin  -> content packet -> daemon socket -> child PTY
-attach stdout <- content packet <- daemon socket <- child PTY
+attach stdin  -> attached Unix stream -> daemon socket -> child PTY
+attach stdout <- attached Unix stream <- daemon socket <- child PTY
 ```
 
 Actors remain the right shape for state that lives across time, but they do not
@@ -88,14 +87,17 @@ the PTY writer, not in the viewer, so every frontend obeys the same rule.
 
 ## 2 - Current Spike Components
 
-These are the checked-in components of the failed spike:
+These are the checked-in components of the attach spike:
 
 - `TerminalCell` - Kameo actor that owns the PTY writer, transcript, resize
-  authority, live subscribers, and waiters.
+  authority, diagnostic subscribers, and waiters.
 - `TerminalTranscript` - append-only output log sequenced by
   `TerminalSequence`.
-- `TranscriptSubscription` - replay plus live delta receiver for the current
-  viewer design.
+- `TerminalOutputPort` - typed ingress to the PTY-output fanout used by the
+  daemon attach path.
+- `TerminalOutputFanout` - non-actor thread that writes PTY output to attached
+  viewers before sending the same bytes to the transcript actor.
+- `TranscriptSubscription` - replay plus live delta receiver for diagnostics.
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
 - `TerminalInputPort` - typed ingress to the PTY writer.
@@ -110,14 +112,10 @@ These are the checked-in components of the failed spike:
   socket requests.
 - `terminal-cell-send` / `capture` / `wait` / `exit` - thin command-line
   clients.
-- `terminal-cell-view` - rejected live attach client. It replays transcript,
-  subscribes live, and forwards keyboard bytes through the daemon.
+- `terminal-cell-view` - interactive attach client. It sends one attach request,
+  then pumps stdin/stdout over the attached Unix stream.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
   stateful witnesses.
-
-The next attach experiment keeps the daemon-owned PTY and diagnostic fixtures,
-but replaces `terminal-cell-view` with an abduco-shaped attach client and daemon
-byte pump.
 
 ## 3 - Constraints
 
@@ -156,6 +154,7 @@ Current useful witnesses:
 - `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
 - `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
 - `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
+- `attach_stream_is_raw_bidirectional_byte_path`
 - `input_gate_holds_human_bytes_during_programmatic_injection`
 - `daemon_exposes_terminal_exit_status`
 - `daemon_resizes_the_owned_pty`
@@ -167,7 +166,8 @@ Current useful witnesses:
 Rejected as acceptance evidence for live attach:
 
 - `attach_view_replays_transcript_without_owning_the_child`
-- `viewer_input_stream_keeps_one_low_latency_input_path`
+- the removed persistent viewer-input stream, because it tested only input and
+  left output behind transcript subscription.
 
 Required next witnesses:
 
