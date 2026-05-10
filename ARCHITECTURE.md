@@ -78,6 +78,13 @@ sink records backpressure or loss; it does not slow the attached viewer.
 Programmatic input writes to the same child PTY write path as human input, with
 source provenance outside the live transport.
 
+The PTY write path also owns the input gate. Persona can temporarily close the
+gate to attached human input, write an injected byte sequence, then reopen the
+gate. This is writer arbitration, not terminal semantics: blocked human bytes
+are either buffered in order or rejected with an explicit gate state, while the
+injected bytes are written contiguously to the child PTY. The gate must sit at
+the PTY writer, not in the viewer, so every frontend obeys the same rule.
+
 ## 2 - Current Spike Components
 
 These are the checked-in components of the failed spike:
@@ -117,6 +124,10 @@ byte pump.
   not the live display path.
 - Human keyboard bytes and Persona programmatic input write to the same child
   PTY input path.
+- Persona injection can acquire the PTY input gate so injected bytes are not
+  interleaved with human keyboard bytes.
+- The input gate is writer arbitration only; it does not parse slash commands
+  or infer harness prompt state.
 - The live attach path is a raw byte transport with only minimal session
   framing.
 - The live attach path does not wait on actor handlers, transcript append,
@@ -156,6 +167,8 @@ Required next witnesses:
 
 - Manual Pi TUI in Ghostty accepts human typing immediately and losslessly.
 - The same session accepts Persona programmatic input.
+- A gated Persona injection is delivered contiguously while simultaneous human
+  input is buffered or rejected according to the gate state.
 - High-volume output does not make keyboard input lag.
 - A deliberately slow transcript sink does not affect the attached viewer.
 - Source inspection of the live path finds no actor mailbox, transcript replay,
