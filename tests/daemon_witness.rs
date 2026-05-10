@@ -11,17 +11,21 @@ struct DaemonFixture {
 }
 
 impl DaemonFixture {
+    fn binary(name: &str) -> String {
+        env::var(format!("CARGO_BIN_EXE_{name}")).expect("cargo exposes binary path to test")
+    }
+
     fn spawn(name: &str) -> Self {
-        let root = env::temp_dir().join(format!("terminal-cell-lab-{name}-{}", std::process::id()));
+        let root = env::temp_dir().join(format!("terminal-cell-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("daemon test root created");
         let socket = root.join("cell.sock");
 
-        let mut child = Command::new(env!("CARGO_BIN_EXE_terminal-cell-lab-daemon"))
+        let mut child = Command::new(Self::binary("terminal-cell-daemon"))
             .arg("--socket")
             .arg(&socket)
             .arg("--")
-            .arg(env!("CARGO_BIN_EXE_agent-terminal-fixture"))
+            .arg(Self::binary("agent-terminal-fixture"))
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -46,7 +50,7 @@ impl DaemonFixture {
     }
 
     fn wait_for_text(&self, text: &str) {
-        let status = Command::new(env!("CARGO_BIN_EXE_terminal-cell-lab-wait"))
+        let status = Command::new(Self::binary("terminal-cell-wait"))
             .arg("--socket")
             .arg(&self.socket)
             .arg("--text")
@@ -57,7 +61,7 @@ impl DaemonFixture {
     }
 
     fn send_line(&self, line: &str) {
-        let status = Command::new(env!("CARGO_BIN_EXE_terminal-cell-lab-send"))
+        let status = Command::new(Self::binary("terminal-cell-send"))
             .arg("--socket")
             .arg(&self.socket)
             .arg("--line")
@@ -68,7 +72,7 @@ impl DaemonFixture {
     }
 
     fn capture_text(&self) -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_terminal-cell-lab-capture"))
+        let output = Command::new(Self::binary("terminal-cell-capture"))
             .arg("--socket")
             .arg(&self.socket)
             .output()
@@ -78,7 +82,7 @@ impl DaemonFixture {
     }
 
     fn view_once_text(&self) -> String {
-        let output = Command::new(env!("CARGO_BIN_EXE_terminal-cell-lab-view"))
+        let output = Command::new(Self::binary("terminal-cell-view"))
             .arg("--socket")
             .arg(&self.socket)
             .arg("--once")

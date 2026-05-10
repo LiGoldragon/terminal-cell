@@ -2,7 +2,7 @@ use std::env;
 use std::error::Error;
 use std::path::PathBuf;
 
-use terminal_cell_lab::TerminalCellSocketClient;
+use terminal_cell::TerminalCellSocketClient;
 
 type SendResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -22,13 +22,13 @@ impl SendArguments {
                 "--socket" => {
                     socket =
                         Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-lab-send requires a path after --socket",
+                            "terminal-cell-send requires a path after --socket",
                         )?));
                 }
                 "--line" => {
                     let line = arguments
                         .next()
-                        .ok_or("terminal-cell-lab-send requires text after --line")?;
+                        .ok_or("terminal-cell-send requires text after --line")?;
                     let mut bytes = line.into_bytes();
                     bytes.push(b'\r');
                     input = Some(bytes);
@@ -37,7 +37,7 @@ impl SendArguments {
                     input = Some(
                         arguments
                             .next()
-                            .ok_or("terminal-cell-lab-send requires text after --bytes")?
+                            .ok_or("terminal-cell-send requires text after --bytes")?
                             .into_bytes(),
                     );
                 }
@@ -46,9 +46,8 @@ impl SendArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-lab-send requires --socket <path>")?,
-            input: input
-                .ok_or("terminal-cell-lab-send requires --line <text> or --bytes <text>")?,
+            socket: socket.ok_or("terminal-cell-send requires --socket <path>")?,
+            input: input.ok_or("terminal-cell-send requires --line <text> or --bytes <text>")?,
         })
     }
 
@@ -81,7 +80,7 @@ fn main() {
         .map(SendArguments::into_command)
         .and_then(|command| command.run())
     {
-        eprintln!("terminal-cell-lab-send failed: {error}");
+        eprintln!("terminal-cell-send failed: {error}");
         std::process::exit(1);
     }
 }

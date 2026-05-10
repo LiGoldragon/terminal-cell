@@ -1,15 +1,15 @@
 [package]
-name         = "terminal-cell-lab"
+name         = "terminal-cell"
 version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.88"
 license      = "MIT OR Apache-2.0"
-repository   = "https://github.com/LiGoldragon/terminal-cell-lab"
+repository   = "https://github.com/LiGoldragon/terminal-cell"
 description  = "Prototype durable terminal session owner with transcript replay."
 publish      = false
 
 [lib]
-name = "terminal_cell_lab"
+name = "terminal_cell"
 path = "src/lib.rs"
 
 [dependencies]

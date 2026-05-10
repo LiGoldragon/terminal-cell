@@ -1,4 +1,4 @@
-# terminal-cell-lab skill
+# terminal-cell skill
 
 Work here when testing the minimal terminal-owner shape.
 
@@ -12,5 +12,8 @@ Rules for work here:
 - Announce daemon readiness only after the actor startup hook has completed.
 - For GUI witnesses, make the view process push an attachment-ready signal
   before the script injects input.
+- Keep the short Ghostty witness and durable Ghostty session separate: the
+  witness cleans up automatically; the session stays alive for human
+  inspection and has an explicit close app.
 - Do not add Persona message, provider quota, or harness policy semantics here.
 - Add every repeated test command through Nix, not as an ad hoc script.

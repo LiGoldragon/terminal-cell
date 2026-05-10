@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::thread;
 
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use terminal_cell_lab::TerminalCellSocketClient;
+use terminal_cell::TerminalCellSocketClient;
 
 type ViewResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -28,14 +28,14 @@ impl ViewArguments {
                 "--socket" => {
                     socket =
                         Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-lab-view requires a path after --socket",
+                            "terminal-cell-view requires a path after --socket",
                         )?));
                 }
                 "--once" => mode = ViewMode::Snapshot,
                 "--ready-file" => {
                     ready_file =
                         Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-lab-view requires a path after --ready-file",
+                            "terminal-cell-view requires a path after --ready-file",
                         )?));
                 }
                 other => return Err(format!("unknown view argument: {other}").into()),
@@ -43,7 +43,7 @@ impl ViewArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-lab-view requires --socket <path>")?,
+            socket: socket.ok_or("terminal-cell-view requires --socket <path>")?,
             mode,
             ready_file,
         })
@@ -129,7 +129,7 @@ impl TerminalViewerReadiness {
 
     fn announce(&self) -> io::Result<()> {
         if let Some(path) = &self.ready_file {
-            fs::write(path, b"terminal-cell-lab-view attached\n")?;
+            fs::write(path, b"terminal-cell-view attached\n")?;
         }
         Ok(())
     }
@@ -155,7 +155,7 @@ fn main() {
         .map(ViewArguments::into_viewer)
         .and_then(|viewer| viewer.run())
     {
-        eprintln!("terminal-cell-lab-view failed: {error}");
+        eprintln!("terminal-cell-view failed: {error}");
         std::process::exit(1);
     }
 }

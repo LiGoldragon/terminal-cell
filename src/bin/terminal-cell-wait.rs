@@ -2,7 +2,7 @@ use std::env;
 use std::error::Error;
 use std::path::PathBuf;
 
-use terminal_cell_lab::TerminalCellSocketClient;
+use terminal_cell::TerminalCellSocketClient;
 
 type WaitResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -22,14 +22,14 @@ impl WaitArguments {
                 "--socket" => {
                     socket =
                         Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-lab-wait requires a path after --socket",
+                            "terminal-cell-wait requires a path after --socket",
                         )?));
                 }
                 "--text" => {
                     text = Some(
                         arguments
                             .next()
-                            .ok_or("terminal-cell-lab-wait requires text after --text")?
+                            .ok_or("terminal-cell-wait requires text after --text")?
                             .into_bytes(),
                     );
                 }
@@ -38,8 +38,8 @@ impl WaitArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-lab-wait requires --socket <path>")?,
-            text: text.ok_or("terminal-cell-lab-wait requires --text <text>")?,
+            socket: socket.ok_or("terminal-cell-wait requires --socket <path>")?,
+            text: text.ok_or("terminal-cell-wait requires --text <text>")?,
         })
     }
 
@@ -72,7 +72,7 @@ fn main() {
         .map(WaitArguments::into_command)
         .and_then(|command| command.run())
     {
-        eprintln!("terminal-cell-lab-wait failed: {error}");
+        eprintln!("terminal-cell-wait failed: {error}");
         std::process::exit(1);
     }
 }

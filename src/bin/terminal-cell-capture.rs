@@ -3,7 +3,7 @@ use std::error::Error;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use terminal_cell_lab::TerminalCellSocketClient;
+use terminal_cell::TerminalCellSocketClient;
 
 type CaptureResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -21,7 +21,7 @@ impl CaptureArguments {
                 "--socket" => {
                     socket =
                         Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-lab-capture requires a path after --socket",
+                            "terminal-cell-capture requires a path after --socket",
                         )?));
                 }
                 other => return Err(format!("unknown capture argument: {other}").into()),
@@ -29,7 +29,7 @@ impl CaptureArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-lab-capture requires --socket <path>")?,
+            socket: socket.ok_or("terminal-cell-capture requires --socket <path>")?,
         })
     }
 
@@ -61,7 +61,7 @@ fn main() {
         .map(CaptureArguments::into_command)
         .and_then(|command| command.run())
     {
-        eprintln!("terminal-cell-lab-capture failed: {error}");
+        eprintln!("terminal-cell-capture failed: {error}");
         std::process::exit(1);
     }
 }

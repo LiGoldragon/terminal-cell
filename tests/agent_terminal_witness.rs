@@ -1,4 +1,4 @@
-use terminal_cell_lab::{
+use terminal_cell::{
     InputSource, TerminalCell, TerminalCommand, TerminalInput, TerminalLaunch, TerminalSize,
     TranscriptSnapshotRequest, WaitForTranscriptText,
 };

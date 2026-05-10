@@ -1,4 +1,4 @@
-# terminal-cell-lab - architecture
+# terminal-cell - architecture
 
 *Prototype durable terminal cell: one PTY owner, one transcript, disposable
 viewers.*
@@ -7,7 +7,7 @@ viewers.*
 
 ## 0 - TL;DR
 
-`terminal-cell-lab` tests whether a daemon-owned terminal cell can preserve
+`terminal-cell` tests whether a daemon-owned terminal cell can preserve
 native terminal behavior while still supporting reattachment with scrollback,
 programmatic input injection, and GUI terminal viewers.
 
@@ -21,10 +21,10 @@ flowchart LR
     child["child process in PTY"] -->|"output bytes"| owner["TerminalCell"]
     owner --> transcript["TerminalTranscript"]
     owner --> projection["ScreenProjection"]
-    daemon["terminal-cell-lab-daemon"] --> owner
-    view["terminal-cell-lab-view in Ghostty"] -->|"viewer bytes"| daemon
-    send["terminal-cell-lab-send"] -->|"programmatic bytes"| daemon
-    capture["terminal-cell-lab-capture"] -->|"snapshot request"| daemon
+    daemon["terminal-cell-daemon"] --> owner
+    view["terminal-cell-view in Ghostty"] -->|"viewer bytes"| daemon
+    send["terminal-cell-send"] -->|"programmatic bytes"| daemon
+    capture["terminal-cell-capture"] -->|"snapshot request"| daemon
     daemon -->|"input bytes"| child
     daemon -->|"replay + live deltas"| view
 ```
@@ -40,10 +40,10 @@ flowchart LR
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
 - `TerminalCellSocketClient` - thin Unix-socket client used by command-line
   tools and viewers.
-- `terminal-cell-lab-daemon` - daemon that owns the `TerminalCell` actor and
+- `terminal-cell-daemon` - daemon that owns the `TerminalCell` actor and
   serves socket requests.
-- `terminal-cell-lab-send` / `capture` / `wait` - thin command-line clients.
-- `terminal-cell-lab-view` - attach client that replays transcript, subscribes
+- `terminal-cell-send` / `capture` / `wait` - thin command-line clients.
+- `terminal-cell-view` - attach client that replays transcript, subscribes
   live, enables raw mode, and forwards keyboard bytes to the daemon.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
   the stateful witness.
@@ -94,6 +94,9 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - `nix run .#ghostty-agent-witness` opens Ghostty, waits for view attachment,
   injects a prompt through the daemon, waits for the response, and captures the
   transcript artifact.
+- `nix run .#ghostty-agent-session` opens a durable Ghostty view backed by a
+  daemon and leaves session files under
+  `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
 
 ## Code Map
 

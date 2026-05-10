@@ -10,7 +10,7 @@ use std::thread;
 use kameo::actor::ActorRef;
 use tokio::runtime::Handle;
 
-use terminal_cell_lab::{
+use terminal_cell::{
     SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell, TerminalCommand,
     TerminalInput, TerminalLaunch, TerminalSize, TranscriptSnapshotRequest,
     TranscriptSubscriptionRequest, WaitForTranscriptText,
@@ -34,13 +34,13 @@ impl DaemonArguments {
                 "--socket" => {
                     socket =
                         Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-lab-daemon requires a path after --socket",
+                            "terminal-cell-daemon requires a path after --socket",
                         )?));
                 }
                 "--" => {
                     let program = arguments
                         .next()
-                        .ok_or("terminal-cell-lab-daemon requires a command after --")?;
+                        .ok_or("terminal-cell-daemon requires a command after --")?;
                     let rest = arguments.collect::<Vec<_>>();
                     command = Some(TerminalCommand::new(program, rest));
                     break;
@@ -52,8 +52,8 @@ impl DaemonArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-lab-daemon requires --socket <path>")?,
-            command: command.ok_or("terminal-cell-lab-daemon requires -- <command> [args...]")?,
+            socket: socket.ok_or("terminal-cell-daemon requires --socket <path>")?,
+            command: command.ok_or("terminal-cell-daemon requires -- <command> [args...]")?,
         })
     }
 
@@ -86,7 +86,7 @@ impl TerminalCellDaemon {
         let listener = UnixListener::bind(&self.socket)?;
         let runtime = Handle::current();
 
-        println!("terminal-cell-lab-daemon socket={}", self.socket.display());
+        println!("terminal-cell-daemon socket={}", self.socket.display());
         io::stdout().flush()?;
 
         tokio::task::spawn_blocking(move || {
@@ -221,7 +221,7 @@ impl TerminalCellConnection {
         }
     }
 
-    fn snapshot(&self) -> io::Result<terminal_cell_lab::TranscriptSnapshot> {
+    fn snapshot(&self) -> io::Result<terminal_cell::TranscriptSnapshot> {
         let reply = self
             .runtime
             .block_on(async { self.terminal.ask(TranscriptSnapshotRequest).await })
@@ -229,7 +229,7 @@ impl TerminalCellConnection {
         Ok(reply)
     }
 
-    fn subscription(&self) -> io::Result<terminal_cell_lab::TranscriptSubscription> {
+    fn subscription(&self) -> io::Result<terminal_cell::TranscriptSubscription> {
         let reply = self
             .runtime
             .block_on(async {
@@ -254,7 +254,7 @@ async fn main() {
     };
 
     if let Err(error) = result {
-        eprintln!("terminal-cell-lab-daemon failed: {error}");
+        eprintln!("terminal-cell-daemon failed: {error}");
         std::process::exit(1);
     }
 }

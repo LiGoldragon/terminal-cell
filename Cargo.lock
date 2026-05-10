@@ -563,7 +563,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "terminal-cell-lab"
+name = "terminal-cell"
 version = "0.1.0"
 dependencies = [
  "crossterm",

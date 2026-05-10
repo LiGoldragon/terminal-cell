@@ -1,6 +1,6 @@
 use kameo::actor::ActorRef;
 
-use terminal_cell_lab::{
+use terminal_cell::{
     InputSource, ScreenProjectionRequest, TerminalCell, TerminalCommand, TerminalInput,
     TerminalLaunch, TerminalSequence, TerminalSize, TranscriptSnapshotRequest,
     TranscriptSubscriptionRequest, WaitForTranscriptText,
