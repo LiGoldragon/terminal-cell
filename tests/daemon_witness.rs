@@ -4,6 +4,8 @@ use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
+use terminal_cell::{TerminalCellSocketClient, TerminalSize};
+
 struct DaemonFixture {
     child: Child,
     root: PathBuf,
@@ -78,6 +80,12 @@ impl DaemonFixture {
             .status()
             .expect("send command runs");
         assert!(status.success(), "send command succeeded");
+    }
+
+    fn resize(&self, rows: u16, columns: u16) {
+        TerminalCellSocketClient::new(&self.socket)
+            .resize(TerminalSize::new(rows, columns))
+            .expect("resize request accepted");
     }
 
     fn capture_text(&self) -> String {
@@ -159,4 +167,18 @@ fn daemon_exposes_terminal_exit_status() {
         !status.trim().is_empty(),
         "terminal-cell-exit prints the child status"
     );
+}
+
+#[test]
+fn daemon_resizes_the_owned_pty() {
+    let daemon = DaemonFixture::spawn_shell("resize", "stty size; IFS= read -r _; stty size");
+
+    daemon.wait_for_text("24 80");
+    daemon.resize(31, 97);
+    daemon.send_line("");
+    daemon.wait_for_text("31 97");
+
+    let transcript = daemon.capture_text();
+    assert!(transcript.contains("24 80"));
+    assert!(transcript.contains("31 97"));
 }

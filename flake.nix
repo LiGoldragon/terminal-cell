@@ -192,6 +192,96 @@
           };
         };
 
+        apps.live-pi-agent-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-live-pi-agent-witness";
+            runtimeInputs = [
+              pkgs.coreutils
+              pkgs.gnugrep
+              pkgs.util-linux
+              toolchain
+            ];
+            text = ''
+              cargo build \
+                --bin terminal-cell-capture \
+                --bin terminal-cell-daemon \
+                --bin terminal-cell-send \
+                --bin terminal-cell-wait
+              target_debug="$(pwd)/target/debug"
+              root="$(mktemp -d -t terminal-cell-live-pi.XXXXXX)"
+              socket="$root/cell.sock"
+              daemon_ready="$root/daemon.ready"
+              artifact_dir="target/live-pi-agent-witness"
+              artifact="$artifact_dir/transcript.txt"
+              marker="''${TERMINAL_CELL_LIVE_PI_MARKER:-TERMINAL_CELL_PI_WITNESS_PASSES}"
+              keep_tmp="''${TERMINAL_CELL_KEEP_LIVE_PI_TMP:-0}"
+              mkdir -p "$artifact_dir"
+              mkfifo "$daemon_ready"
+
+              daemon_pid=""
+              cleanup() {
+                status="$?"
+                if [ "$status" -ne 0 ] && [ -S "$socket" ]; then
+                  "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact.failure" 2>/dev/null || true
+                  if [ -s "$artifact.failure" ]; then
+                    printf 'live Pi agent failure transcript=%s\n' "$artifact.failure" >&2
+                  fi
+                fi
+                if [ -n "$daemon_pid" ]; then
+                  kill -- "-$daemon_pid" 2>/dev/null || kill "$daemon_pid" 2>/dev/null || true
+                  wait "$daemon_pid" 2>/dev/null || true
+                fi
+                if [ "$keep_tmp" = "1" ]; then
+                  printf 'kept live Pi temp root=%s\n' "$root"
+                else
+                  rm -rf "$root"
+                fi
+              }
+              trap cleanup EXIT
+
+              pi_bin="''${TERMINAL_CELL_PI_BIN:-''${PERSONA_PI_BIN:-pi}}"
+              if command -v "$pi_bin" >/dev/null 2>&1; then
+                pi_bin="$(command -v "$pi_bin")"
+              elif [ -x "$HOME/.nix-profile/bin/pi" ]; then
+                pi_bin="$HOME/.nix-profile/bin/pi"
+              else
+                printf 'pi not found; set TERMINAL_CELL_PI_BIN=/path/to/pi\n' >&2
+                exit 1
+              fi
+
+              pi_model="''${TERMINAL_CELL_PI_MODEL:-''${PERSONA_PI_MODEL:-prometheus/glm-4.7-flash}}"
+              pi_thinking="''${TERMINAL_CELL_PI_THINKING:-off}"
+              pi_workspace="''${TERMINAL_CELL_PI_WORKSPACE:-$PWD}"
+              pi_args=(--offline --model "$pi_model" --thinking "$pi_thinking")
+              if [ "''${TERMINAL_CELL_PI_ENABLE_TOOLS:-0}" != "1" ]; then
+                pi_args+=(--no-tools)
+              fi
+
+              # shellcheck disable=SC2016
+              setsid "$target_debug/terminal-cell-daemon" \
+                --socket "$socket" \
+                -- ${pkgs.bash}/bin/bash -lc 'cd "$1" || exit; shift; exec "$@"' terminal-cell-pi "$pi_workspace" "$pi_bin" "''${pi_args[@]}" > "$daemon_ready" 2> "$root/daemon.stderr" &
+              daemon_pid="$!"
+
+              ready_line="$(timeout 20s head -n 1 "$daemon_ready")"
+              if [ -z "$ready_line" ]; then
+                printf 'terminal-cell daemon did not announce readiness\n' >&2
+                exit 1
+              fi
+              printf '%s\n' "$ready_line"
+
+              timeout 60s "$target_debug/terminal-cell-wait" --socket "$socket" --text "Pi can explain"
+              live_prompt="Reply with exactly the uppercase underscore-separated form of these five words, and no other text: terminal cell pi witness passes."
+              "$target_debug/terminal-cell-send" --socket "$socket" --line "$live_prompt"
+              timeout 300s "$target_debug/terminal-cell-wait" --socket "$socket" --text "$marker"
+              sleep "''${TERMINAL_CELL_LIVE_PI_SETTLE_SECONDS:-10}"
+              "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact"
+              grep -q "$marker" "$artifact"
+              printf 'live Pi agent witness transcript=%s\n' "$artifact"
+            '';
+          };
+        };
+
         apps.ghostty-agent-demo = flake-utils.lib.mkApp {
           drv = pkgs.writeShellApplication {
             name = "terminal-cell-ghostty-agent-demo";
@@ -329,13 +419,10 @@
             ];
             text = ''
               cargo build \
-                --bin agent-terminal-fixture \
                 --bin terminal-cell-capture \
                 --bin terminal-cell-daemon \
                 --bin terminal-cell-exit \
-                --bin terminal-cell-send \
-                --bin terminal-cell-view \
-                --bin terminal-cell-wait
+                --bin terminal-cell-view
               target_debug="$(pwd)/target/debug"
               session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
               session="$session_root/session-$(date +%Y%m%d-%H%M%S)-$$"
@@ -363,9 +450,31 @@
               }
               trap cleanup_on_failure EXIT
 
+              pi_bin="''${TERMINAL_CELL_PI_BIN:-''${PERSONA_PI_BIN:-pi}}"
+              if command -v "$pi_bin" >/dev/null 2>&1; then
+                pi_bin="$(command -v "$pi_bin")"
+              elif [ -x "$HOME/.nix-profile/bin/pi" ]; then
+                pi_bin="$HOME/.nix-profile/bin/pi"
+              else
+                printf 'pi not found; set TERMINAL_CELL_PI_BIN=/path/to/pi\n' >&2
+                exit 1
+              fi
+
+              pi_model="''${TERMINAL_CELL_PI_MODEL:-''${PERSONA_PI_MODEL:-prometheus/glm-4.7-flash}}"
+              pi_thinking="''${TERMINAL_CELL_PI_THINKING:-off}"
+              pi_workspace="''${TERMINAL_CELL_PI_WORKSPACE:-$PWD}"
+              pi_args=(--offline --model "$pi_model" --thinking "$pi_thinking")
+              if [ "''${TERMINAL_CELL_PI_ENABLE_TOOLS:-0}" != "1" ]; then
+                pi_args+=(--no-tools)
+              fi
+              if [ -n "''${TERMINAL_CELL_PI_SESSION_DIR:-}" ]; then
+                pi_args+=(--session-dir "$TERMINAL_CELL_PI_SESSION_DIR")
+              fi
+
+              # shellcheck disable=SC2016
               setsid "$target_debug/terminal-cell-daemon" \
                 --socket "$socket" \
-                -- "$target_debug/agent-terminal-fixture" > "$daemon_ready" 2> "$session/daemon.stderr" &
+                -- ${pkgs.bash}/bin/bash -lc 'cd "$1" || exit; shift; exec "$@"' terminal-cell-pi "$pi_workspace" "$pi_bin" "''${pi_args[@]}" > "$daemon_ready" 2> "$session/daemon.stderr" &
               daemon_pid="$!"
               printf '%s\n' "$daemon_pid" > "$session/daemon.pid"
               ready_line="$(timeout 20s head -n 1 "$daemon_ready")"
@@ -384,7 +493,7 @@
                   exit 1
                 fi
               fi
-              ghostty_class="''${TERMINAL_CELL_GHOSTTY_CLASS:-com.ligoldragon.terminalcellsession}"
+              ghostty_class="''${TERMINAL_CELL_GHOSTTY_CLASS:-com.ligoldragon.terminalcellpi}"
 
               setsid "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --socket "$socket" --ready-file "$view_ready" > "$session/ghostty.stdout" 2> "$session/ghostty.stderr" &
               ghostty_pid="$!"
@@ -396,12 +505,13 @@
               fi
               printf '%s\n' "$view_line"
 
-              "$target_debug/terminal-cell-wait" --socket "$socket" --text agent-ready
-              "$target_debug/terminal-cell-send" --socket "$socket" --line "hello durable terminal cell"
-              "$target_debug/terminal-cell-wait" --socket "$socket" --text "agent-response: hello durable terminal cell"
-              "$target_debug/terminal-cell-send" --socket "$socket" --line "/usage"
-              "$target_debug/terminal-cell-wait" --socket "$socket" --text "usage-window: five-hour=73 weekly=41"
-              "$target_debug/terminal-cell-capture" --socket "$socket" > "$session/transcript.txt"
+              sleep "''${TERMINAL_CELL_PI_SETTLE_SECONDS:-2}"
+              if timeout 1s "$target_debug/terminal-cell-exit" --socket "$socket" > "$session/exit.status" 2>/dev/null; then
+                printf 'pi exited before the visible session could stay attached; see %s\n' "$session/exit.status" >&2
+                "$target_debug/terminal-cell-capture" --socket "$socket" > "$session/transcript.initial" 2>/dev/null || true
+                exit 1
+              fi
+              "$target_debug/terminal-cell-capture" --socket "$socket" > "$session/transcript.initial" 2>/dev/null || true
 
               {
                 printf 'TERMINAL_CELL_SESSION=%s\n' "$session"
@@ -409,12 +519,16 @@
                 printf 'TERMINAL_CELL_DAEMON_PID=%s\n' "$daemon_pid"
                 printf 'TERMINAL_CELL_GHOSTTY_PID=%s\n' "$ghostty_pid"
                 printf 'TERMINAL_CELL_GHOSTTY_CLASS=%s\n' "$ghostty_class"
+                printf 'TERMINAL_CELL_PI_BIN=%s\n' "$pi_bin"
+                printf 'TERMINAL_CELL_PI_MODEL=%s\n' "$pi_model"
+                printf 'TERMINAL_CELL_PI_THINKING=%s\n' "$pi_thinking"
+                printf 'TERMINAL_CELL_PI_WORKSPACE=%s\n' "$pi_workspace"
               } > "$session/session.env"
 
               trap - EXIT
-              printf 'terminal-cell session=%s\n' "$session"
+              printf 'terminal-cell pi session=%s\n' "$session"
               printf 'terminal-cell socket=%s\n' "$socket"
-              printf 'terminal-cell transcript=%s\n' "$session/transcript.txt"
+              printf 'terminal-cell initial transcript=%s\n' "$session/transcript.initial"
               printf 'close with: nix run .#close-ghostty-agent-sessions\n'
             '';
           };

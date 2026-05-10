@@ -1,11 +1,12 @@
 use std::io::{self, Read, Write};
 
-use crate::{InputSource, TerminalInput, WaitForTranscriptText};
+use crate::{InputSource, TerminalInput, TerminalSize, WaitForTranscriptText};
 
 const CAPTURE_REQUEST: u8 = b'C';
 const SUBSCRIBE_REQUEST: u8 = b'S';
 const PROGRAMMATIC_INPUT_REQUEST: u8 = b'P';
 const VIEWER_INPUT_REQUEST: u8 = b'V';
+const RESIZE_REQUEST: u8 = b'R';
 const WAIT_REQUEST: u8 = b'W';
 const WAIT_EXIT_REQUEST: u8 = b'X';
 const ACCEPTANCE_REPLY: u8 = b'A';
@@ -17,6 +18,7 @@ pub enum SocketRequest {
     Capture,
     SubscribeFromBeginning,
     Input(TerminalInput),
+    Resize(TerminalSize),
     Wait(WaitForTranscriptText),
     WaitExit,
 }
@@ -53,6 +55,11 @@ where
                     InputSource::Viewer,
                 )))
             }
+            RESIZE_REQUEST => {
+                let rows = self.read_u16()?;
+                let columns = self.read_u16()?;
+                Ok(SocketRequest::Resize(TerminalSize::new(rows, columns)))
+            }
             WAIT_REQUEST => {
                 let bytes = self.read_frame()?;
                 Ok(SocketRequest::Wait(WaitForTranscriptText::new(bytes)))
@@ -82,6 +89,12 @@ where
         let mut bytes = [0_u8; 8];
         self.reader.read_exact(&mut bytes)?;
         Ok(u64::from_be_bytes(bytes))
+    }
+
+    fn read_u16(&mut self) -> io::Result<u16> {
+        let mut bytes = [0_u8; 2];
+        self.reader.read_exact(&mut bytes)?;
+        Ok(u16::from_be_bytes(bytes))
     }
 }
 
@@ -119,6 +132,13 @@ where
         self.writer.flush()
     }
 
+    pub fn write_resize_request(&mut self, size: TerminalSize) -> io::Result<()> {
+        self.writer.write_all(&[RESIZE_REQUEST])?;
+        self.write_u16(size.rows())?;
+        self.write_u16(size.columns())?;
+        self.writer.flush()
+    }
+
     pub fn write_wait_request(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.writer.write_all(&[WAIT_REQUEST])?;
         self.write_frame(bytes)?;
@@ -136,6 +156,10 @@ where
     }
 
     fn write_u64(&mut self, value: u64) -> io::Result<()> {
+        self.writer.write_all(&value.to_be_bytes())
+    }
+
+    fn write_u16(&mut self, value: u16) -> io::Result<()> {
         self.writer.write_all(&value.to_be_bytes())
     }
 }

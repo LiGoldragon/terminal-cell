@@ -48,7 +48,8 @@ flowchart LR
 - `terminal-cell-send` / `capture` / `wait` / `exit` - thin command-line
   clients.
 - `terminal-cell-view` - attach client that replays transcript, subscribes
-  live, enables raw mode, and forwards keyboard bytes to the daemon.
+  live, resizes the daemon-owned PTY to the viewer terminal, enables raw mode,
+  and forwards keyboard bytes to the daemon.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
   the stateful witness.
 
@@ -73,6 +74,8 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - A late viewer receives replayed transcript before live deltas.
 - Programmatic input and viewer keyboard input enter through the same input
   port.
+- Viewer attach sends the actual GUI terminal rows/columns to the cell before
+  replay, so full-screen TUIs are not trapped in a canned fixture size.
 - Terminal input is raw bytes; slash commands are not parsed by the terminal
   owner.
 - Screen snapshots are derived from transcript bytes.
@@ -99,17 +102,21 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
 - `attach_view_replays_transcript_without_owning_the_child`
 - `daemon_exposes_terminal_exit_status`
+- `daemon_resizes_the_owned_pty`
 - `nix run .#live-coding-agent-witness` starts the real Codex CLI by default,
   injects a prompt through the daemon socket, waits for the model response
   marker that is not present in the injected prompt, and captures the
   transcript artifact. The witness sends Enter as a separate PTY write after
   the prompt echo; coalescing prompt text and submit into one write is not a
   faithful enough model for this TUI.
+- `nix run .#live-pi-agent-witness` starts the real Pi TUI, injects a prompt
+  through the daemon socket, waits for a model response marker that is not
+  present in the injected prompt, and captures the transcript artifact.
 - `nix run .#ghostty-agent-witness` opens Ghostty, waits for view attachment,
   injects a prompt through the daemon, waits for the response, and captures the
   transcript artifact.
 - `nix run .#ghostty-agent-session` opens a durable Ghostty view backed by a
-  daemon and leaves session files under
+  daemon-owned Pi TUI and leaves session files under
   `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
 
 ## Code Map

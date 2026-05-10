@@ -5,8 +5,8 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::thread;
 
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
-use terminal_cell::TerminalCellSocketClient;
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size};
+use terminal_cell::{TerminalCellSocketClient, TerminalSize};
 
 type ViewResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
@@ -89,6 +89,7 @@ impl TerminalViewer {
     }
 
     fn attach(&self) -> ViewResult<()> {
+        self.resize_attached_terminal()?;
         let mut subscription = self.client.subscribe_from_beginning()?;
         self.readiness.confirm_control_plane(&self.client)?;
         self.readiness.announce()?;
@@ -115,6 +116,11 @@ impl TerminalViewer {
             .join()
             .map_err(|_| "terminal view output thread panicked")??;
         Ok(())
+    }
+
+    fn resize_attached_terminal(&self) -> io::Result<()> {
+        let (columns, rows) = terminal_size()?;
+        self.client.resize(TerminalSize::new(rows, columns))
     }
 }
 

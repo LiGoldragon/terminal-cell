@@ -173,6 +173,7 @@ impl TerminalCellConnection {
             SocketRequest::Capture => self.write_snapshot(),
             SocketRequest::SubscribeFromBeginning => self.stream_subscription(),
             SocketRequest::Input(input) => self.write_input(input),
+            SocketRequest::Resize(size) => self.write_resize(size),
             SocketRequest::Wait(wait) => self.wait_for_text(wait),
             SocketRequest::WaitExit => self.wait_for_exit(),
         }
@@ -204,6 +205,13 @@ impl TerminalCellConnection {
             .block_on(async { self.terminal.ask(input).await })
             .map_err(Self::actor_error)?;
         let _accepted_source = acceptance.source();
+        SocketReplyWriter::new(&mut self.stream).write_acceptance()
+    }
+
+    fn write_resize(&mut self, size: TerminalSize) -> io::Result<()> {
+        self.runtime
+            .block_on(async { self.terminal.ask(size).await })
+            .map_err(Self::actor_error)?;
         SocketReplyWriter::new(&mut self.stream).write_acceptance()
     }
 
