@@ -4,9 +4,13 @@ Work here when testing the minimal terminal-owner shape.
 
 Rules for work here:
 
-- Keep every stateful runtime plane actor-shaped.
-- Treat PTY output bytes as transcript truth.
-- Treat screen snapshots as derived projections.
+- Keep lifecycle and control state actor-shaped.
+- Keep the live human attach path out of actor mailboxes, transcript replay,
+  and screen projection. It is a raw byte pump with minimal attach/detach/resize
+  framing.
+- Treat PTY output bytes as transcript truth, but record transcript as a
+  side-channel observer of the live path.
+- Treat screen snapshots as derived projections, not as live display state.
 - Keep command-line tools as daemon clients. The daemon owns the Kameo
   `TerminalCell`; clients send socket requests.
 - Announce daemon readiness only after the actor startup hook has completed.

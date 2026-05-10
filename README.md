@@ -1,12 +1,20 @@
 # terminal-cell
 
-Prototype for a minimal durable terminal session owner: PTY ownership,
-append-only transcript replay, and raw programmatic input without terminal
-multiplexer UI.
+Prototype workspace for durable terminal session ownership: daemon-owned PTY
+lifecycle, transcript capture, raw programmatic input, and attach experiments
+without terminal multiplexer UI.
 
-Interactive viewers keep one persistent input stream to the daemon. Keyboard
-bytes are accepted by the same typed PTY input port as programmatic bytes, not
-by a per-key socket request that waits behind transcript work.
+Status: this is a failed architecture spike for live human TUI use. It proved
+that the daemon can own a PTY, capture transcript bytes, and launch real agent
+TUIs, but the `terminal-cell-view` relay design is not acceptable: manual Pi
+testing showed slow, dropped, and eventually stalled keyboard interaction.
+
+Do not treat the Ghostty/Pi witnesses below as proof of a usable attach
+primitive. They are diagnostics for launch, transcript, injection, resize, and
+exit behavior. The next attach design must be an abduco-like byte broker where
+the live terminal path is a minimal raw PTY/socket pump, and transcript/actor
+logic observes around that path instead of rendering the human session through
+transcript subscriptions.
 
 Run the witness suite:
 
