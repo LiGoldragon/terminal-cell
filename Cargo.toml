@@ -21,6 +21,5 @@ vt100        = "0.16"
 
 [lints.rust]
 unsafe_code = "forbid"
-unused      = "warn"
+unused      = { level = "warn", priority = -1 }
 dead_code   = "warn"
-

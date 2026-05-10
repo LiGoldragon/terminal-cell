@@ -1,12 +1,12 @@
 use std::io::{Read, Write};
 use std::thread;
 
+use kameo::Actor;
 use kameo::actor::{ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use kameo::reply::{DelegatedReply, ReplySender};
-use kameo::Actor;
-use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tokio::sync::broadcast;
 
 use crate::error::TerminalCellError;
@@ -377,7 +377,7 @@ impl TerminalCell {
         let mut waiting = Vec::new();
         for waiter in self.waiters.drain(..) {
             if waiter.matches(transcript) {
-                let _ = waiter.sender.send(true);
+                waiter.sender.send(true);
             } else {
                 waiting.push(waiter);
             }
@@ -561,7 +561,7 @@ impl Message<WaitForTranscriptText> for TerminalCell {
         let (delegated, sender) = context.reply_sender();
         if let Some(sender) = sender {
             if self.transcript.contains(&message.needle) {
-                let _ = sender.send(true);
+                sender.send(true);
             } else {
                 self.waiters
                     .push(TranscriptWaiter::new(message.needle, sender));

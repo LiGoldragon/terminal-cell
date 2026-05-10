@@ -17,7 +17,7 @@
         pkgs = import nixpkgs { inherit system; };
         toolchain = fenix.packages.${system}.fromToolchainFile {
           file = ./rust-toolchain.toml;
-          sha256 = "sha256-Qxt8XAuaUR2OMdKbN4u8dBJOhSHxS+uS06Wl9+flVEk=";
+          sha256 = "sha256-gh/xTkxKHL4eiRXzWv8KP7vfjSk61Iq48x47BEDFgfk=";
         };
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
         src = craneLib.cleanCargoSource ./.;
@@ -33,14 +33,23 @@
         });
 
         checks = {
-          default = craneLib.cargoTest (commonArgs // { inherit cargoArtifacts; });
+          default = craneLib.cargoBuild (commonArgs // { inherit cargoArtifacts; });
           build = craneLib.cargoBuild (commonArgs // { inherit cargoArtifacts; });
-          test = craneLib.cargoTest (commonArgs // { inherit cargoArtifacts; });
           fmt = craneLib.cargoFmt { inherit src; };
           clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
             cargoClippyExtraArgs = "--all-targets -- -D warnings";
           });
+        };
+
+        apps.session-witnesses = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-lab-session-witnesses";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --test session_witnesses -- --nocapture
+            '';
+          };
         };
 
         devShells.default = pkgs.mkShell {
@@ -54,4 +63,3 @@
         formatter = pkgs.nixfmt;
       });
 }
-
