@@ -11,9 +11,10 @@ pub use client::TerminalCellSocketClient;
 pub use error::TerminalCellError;
 pub use session::{
     InputAcceptance, InputSource, ScreenProjectionRequest, TerminalCell, TerminalCommand,
-    TerminalExit, TerminalInput, TerminalLaunch, TerminalSequence, TerminalSize, TranscriptDelta,
-    TranscriptSnapshot, TranscriptSnapshotRequest, TranscriptSubscription,
-    TranscriptSubscriptionRequest, WaitForTranscriptText,
+    TerminalExit, TerminalExitRequest, TerminalInput, TerminalLaunch, TerminalSequence,
+    TerminalSize, TranscriptDelta, TranscriptSnapshot, TranscriptSnapshotRequest,
+    TranscriptSubscription, TranscriptSubscriptionRequest, WaitForTerminalExit,
+    WaitForTranscriptText,
 };
 pub use snapshot::ScreenProjection;
 pub use socket::{

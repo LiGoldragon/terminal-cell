@@ -7,6 +7,7 @@ const SUBSCRIBE_REQUEST: u8 = b'S';
 const PROGRAMMATIC_INPUT_REQUEST: u8 = b'P';
 const VIEWER_INPUT_REQUEST: u8 = b'V';
 const WAIT_REQUEST: u8 = b'W';
+const WAIT_EXIT_REQUEST: u8 = b'X';
 const ACCEPTANCE_REPLY: u8 = b'A';
 const WAIT_SATISFIED_REPLY: u8 = b'Y';
 const MAXIMUM_FRAME_LENGTH: u64 = 16 * 1024 * 1024;
@@ -17,6 +18,7 @@ pub enum SocketRequest {
     SubscribeFromBeginning,
     Input(TerminalInput),
     Wait(WaitForTranscriptText),
+    WaitExit,
 }
 
 pub struct SocketRequestReader<Reader> {
@@ -55,6 +57,7 @@ where
                 let bytes = self.read_frame()?;
                 Ok(SocketRequest::Wait(WaitForTranscriptText::new(bytes)))
             }
+            WAIT_EXIT_REQUEST => Ok(SocketRequest::WaitExit),
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown socket request tag: {other}"),
@@ -122,6 +125,11 @@ where
         self.writer.flush()
     }
 
+    pub fn write_wait_exit_request(&mut self) -> io::Result<()> {
+        self.writer.write_all(&[WAIT_EXIT_REQUEST])?;
+        self.writer.flush()
+    }
+
     fn write_frame(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.write_u64(bytes.len() as u64)?;
         self.writer.write_all(bytes)
@@ -154,6 +162,16 @@ where
 
     pub fn read_wait_satisfied(&mut self) -> io::Result<()> {
         self.read_expected_tag(WAIT_SATISFIED_REPLY)
+    }
+
+    pub fn read_exit_status(&mut self) -> io::Result<String> {
+        let bytes = self.read_frame()?;
+        String::from_utf8(bytes).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("terminal exit status was not utf-8: {error}"),
+            )
+        })
     }
 
     fn read_expected_tag(&mut self, expected: u8) -> io::Result<()> {
@@ -213,6 +231,11 @@ where
 
     pub fn write_wait_satisfied(&mut self) -> io::Result<()> {
         self.writer.write_all(&[WAIT_SATISFIED_REPLY])?;
+        self.writer.flush()
+    }
+
+    pub fn write_exit_status(&mut self, status: &str) -> io::Result<()> {
+        self.write_frame(status.as_bytes())?;
         self.writer.flush()
     }
 

@@ -13,7 +13,7 @@ use tokio::runtime::Handle;
 use terminal_cell::{
     SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell, TerminalCommand,
     TerminalInput, TerminalLaunch, TerminalSize, TranscriptSnapshotRequest,
-    TranscriptSubscriptionRequest, WaitForTranscriptText,
+    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
 };
 
 type TerminalDaemonResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -174,6 +174,7 @@ impl TerminalCellConnection {
             SocketRequest::SubscribeFromBeginning => self.stream_subscription(),
             SocketRequest::Input(input) => self.write_input(input),
             SocketRequest::Wait(wait) => self.wait_for_text(wait),
+            SocketRequest::WaitExit => self.wait_for_exit(),
         }
     }
 
@@ -202,7 +203,7 @@ impl TerminalCellConnection {
             .runtime
             .block_on(async { self.terminal.ask(input).await })
             .map_err(Self::actor_error)?;
-        let _ = acceptance;
+        let _accepted_source = acceptance.source();
         SocketReplyWriter::new(&mut self.stream).write_acceptance()
     }
 
@@ -227,6 +228,14 @@ impl TerminalCellConnection {
             .block_on(async { self.terminal.ask(TranscriptSnapshotRequest).await })
             .map_err(Self::actor_error)?;
         Ok(reply)
+    }
+
+    fn wait_for_exit(&mut self) -> io::Result<()> {
+        let exit = self
+            .runtime
+            .block_on(async { self.terminal.ask(WaitForTerminalExit).await })
+            .map_err(Self::actor_error)?;
+        SocketReplyWriter::new(&mut self.stream).write_exit_status(exit.status())
     }
 
     fn subscription(&self) -> io::Result<terminal_cell::TranscriptSubscription> {

@@ -1,9 +1,9 @@
 use kameo::actor::ActorRef;
 
 use terminal_cell::{
-    InputSource, ScreenProjectionRequest, TerminalCell, TerminalCommand, TerminalInput,
-    TerminalLaunch, TerminalSequence, TerminalSize, TranscriptSnapshotRequest,
-    TranscriptSubscriptionRequest, WaitForTranscriptText,
+    InputSource, ScreenProjectionRequest, TerminalCell, TerminalCommand, TerminalExitRequest,
+    TerminalInput, TerminalLaunch, TerminalSequence, TerminalSize, TranscriptSnapshotRequest,
+    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
 };
 
 struct TerminalFixture;
@@ -94,4 +94,33 @@ async fn screen_projection_is_derived_from_transcript() {
     assert!(projection.visible_text().contains("alpha"));
     assert!(projection.visible_text().contains("beta"));
     assert!(snapshot.last_sequence() > TerminalSequence::new(0));
+}
+
+#[tokio::test]
+async fn terminal_exit_is_observable_without_polling_the_child() {
+    let terminal = TerminalFixture::spawn_shell("printf 'before-exit\\n'; exit 7");
+
+    assert!(
+        terminal
+            .ask(WaitForTranscriptText::new(b"before-exit".to_vec()))
+            .await
+            .expect("wait message delivered"),
+        "fixture output reached transcript before exit"
+    );
+
+    let exit = terminal
+        .ask(WaitForTerminalExit)
+        .await
+        .expect("exit wait delivered");
+    assert!(
+        !exit.status().trim().is_empty(),
+        "terminal exit status is recorded"
+    );
+
+    let observed = terminal
+        .ask(TerminalExitRequest)
+        .await
+        .expect("exit snapshot delivered")
+        .expect("terminal exit already recorded");
+    assert_eq!(observed, exit);
 }

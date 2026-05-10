@@ -1,11 +1,11 @@
 use std::io::{Read, Write};
 use std::thread;
 
-use kameo::Actor;
 use kameo::actor::{ActorRef, Spawn};
 use kameo::error::Infallible;
 use kameo::message::{Context, Message};
 use kameo::reply::{DelegatedReply, ReplySender};
+use kameo::{Actor, Reply};
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize, native_pty_system};
 use tokio::sync::broadcast;
 
@@ -286,6 +286,9 @@ impl TranscriptSubscription {
 pub struct TranscriptSnapshotRequest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalExitRequest;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScreenProjectionRequest {
     size: TerminalSize,
 }
@@ -310,6 +313,9 @@ impl WaitForTranscriptText {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitForTerminalExit;
+
+#[derive(Debug, Clone, PartialEq, Eq, Reply)]
 pub struct TerminalExit {
     status: String,
 }
@@ -361,6 +367,16 @@ impl TranscriptWaiter {
     }
 }
 
+struct TerminalExitWaiter {
+    sender: ReplySender<TerminalExit>,
+}
+
+impl TerminalExitWaiter {
+    fn new(sender: ReplySender<TerminalExit>) -> Self {
+        Self { sender }
+    }
+}
+
 pub struct TerminalCell {
     master: Box<dyn MasterPty + Send>,
     input_writer: Box<dyn Write + Send>,
@@ -368,6 +384,7 @@ pub struct TerminalCell {
     transcript: TerminalTranscript,
     subscribers: broadcast::Sender<TranscriptDelta>,
     waiters: Vec<TranscriptWaiter>,
+    exit_waiters: Vec<TerminalExitWaiter>,
     exit: Option<TerminalExit>,
 }
 
@@ -387,6 +404,16 @@ impl TerminalCell {
             }
         }
         self.waiters = waiting;
+    }
+
+    fn notify_exit_waiters(&mut self) {
+        let Some(exit) = &self.exit else {
+            return;
+        };
+
+        for waiter in self.exit_waiters.drain(..) {
+            waiter.sender.send(exit.clone());
+        }
     }
 }
 
@@ -425,7 +452,7 @@ impl Actor for TerminalCell {
                         .try_send();
                 }
             })
-            .expect("prototype output thread starts");
+            .expect("terminal output thread starts");
 
         let exit_ref = actor_ref;
         thread::Builder::new()
@@ -439,7 +466,7 @@ impl Actor for TerminalCell {
                     .tell(TerminalExited::new(TerminalExit::new(status)))
                     .try_send();
             })
-            .expect("prototype exit thread starts");
+            .expect("terminal exit thread starts");
 
         let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
@@ -449,6 +476,7 @@ impl Actor for TerminalCell {
             transcript: TerminalTranscript::new(),
             subscribers,
             waiters: Vec::new(),
+            exit_waiters: Vec::new(),
             exit: None,
         })
     }
@@ -478,6 +506,7 @@ impl Message<TerminalExited> for TerminalCell {
 
     async fn handle(&mut self, message: TerminalExited, _context: &mut Context<Self, Self::Reply>) {
         self.exit = Some(message.exit);
+        self.notify_exit_waiters();
     }
 }
 
@@ -521,6 +550,18 @@ impl Message<TranscriptSnapshotRequest> for TerminalCell {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         Ok(self.transcript.snapshot())
+    }
+}
+
+impl Message<TerminalExitRequest> for TerminalCell {
+    type Reply = Result<Option<TerminalExit>, Infallible>;
+
+    async fn handle(
+        &mut self,
+        _message: TerminalExitRequest,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        Ok(self.exit.clone())
     }
 }
 
@@ -569,6 +610,26 @@ impl Message<WaitForTranscriptText> for TerminalCell {
             } else {
                 self.waiters
                     .push(TranscriptWaiter::new(message.needle, sender));
+            }
+        }
+        delegated
+    }
+}
+
+impl Message<WaitForTerminalExit> for TerminalCell {
+    type Reply = DelegatedReply<TerminalExit>;
+
+    async fn handle(
+        &mut self,
+        _message: WaitForTerminalExit,
+        context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let (delegated, sender) = context.reply_sender();
+        if let Some(sender) = sender {
+            if let Some(exit) = &self.exit {
+                sender.send(exit.clone());
+            } else {
+                self.exit_waiters.push(TerminalExitWaiter::new(sender));
             }
         }
         delegated

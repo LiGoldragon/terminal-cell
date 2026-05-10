@@ -25,6 +25,7 @@ flowchart LR
     view["terminal-cell-view in Ghostty"] -->|"viewer bytes"| daemon
     send["terminal-cell-send"] -->|"programmatic bytes"| daemon
     capture["terminal-cell-capture"] -->|"snapshot request"| daemon
+    exit["terminal-cell-exit"] -->|"child-exit wait"| daemon
     daemon -->|"input bytes"| child
     daemon -->|"replay + live deltas"| view
 ```
@@ -38,11 +39,14 @@ flowchart LR
 - `TranscriptSubscription` - replay plus live delta receiver for a viewer.
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
+- `TerminalExit` - recorded child status, observable through the actor and
+  socket protocol without polling the child process.
 - `TerminalCellSocketClient` - thin Unix-socket client used by command-line
   tools and viewers.
 - `terminal-cell-daemon` - daemon that owns the `TerminalCell` actor and
   serves socket requests.
-- `terminal-cell-send` / `capture` / `wait` - thin command-line clients.
+- `terminal-cell-send` / `capture` / `wait` / `exit` - thin command-line
+  clients.
 - `terminal-cell-view` - attach client that replays transcript, subscribes
   live, enables raw mode, and forwards keyboard bytes to the daemon.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
@@ -75,6 +79,8 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - Blocking PTY reads are isolated outside actor handlers and push messages into
   the actor mailbox.
 - CLIs are daemon clients; they do not own the runtime or transcript.
+- Child exit is actor state; clients wait on the terminal cell instead of
+  polling process tables.
 - A GUI terminal attaches by running the view client as the terminal command.
 - Ghostty witnesses use the app ID/class
   `com.ligoldragon.terminalcellwitness` so Niri can target the window with
@@ -87,10 +93,18 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - `detached_output_is_replayed_to_late_subscriber`
 - `programmatic_input_uses_the_same_pty_input_port`
 - `screen_projection_is_derived_from_transcript`
+- `terminal_exit_is_observable_without_polling_the_child`
 - `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
 - `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
 - `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
 - `attach_view_replays_transcript_without_owning_the_child`
+- `daemon_exposes_terminal_exit_status`
+- `nix run .#live-coding-agent-witness` starts the real Codex CLI by default,
+  injects a prompt through the daemon socket, waits for the model response
+  marker that is not present in the injected prompt, and captures the
+  transcript artifact. The witness sends Enter as a separate PTY write after
+  the prompt echo; coalescing prompt text and submit into one write is not a
+  faithful enough model for this TUI.
 - `nix run .#ghostty-agent-witness` opens Ghostty, waits for view attachment,
   injects a prompt through the daemon, waits for the response, and captures the
   transcript artifact.

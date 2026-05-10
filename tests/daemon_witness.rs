@@ -16,16 +16,25 @@ impl DaemonFixture {
     }
 
     fn spawn(name: &str) -> Self {
+        Self::spawn_command(name, &Self::binary("agent-terminal-fixture"), &[])
+    }
+
+    fn spawn_shell(name: &str, script: &str) -> Self {
+        Self::spawn_command(name, "sh", &["-lc", script])
+    }
+
+    fn spawn_command(name: &str, program: &str, arguments: &[&str]) -> Self {
         let root = env::temp_dir().join(format!("terminal-cell-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("daemon test root created");
         let socket = root.join("cell.sock");
 
-        let mut child = Command::new(Self::binary("terminal-cell-daemon"))
-            .arg("--socket")
-            .arg(&socket)
-            .arg("--")
-            .arg(Self::binary("agent-terminal-fixture"))
+        let mut command = Command::new(Self::binary("terminal-cell-daemon"));
+        command.arg("--socket").arg(&socket).arg("--").arg(program);
+        for argument in arguments {
+            command.arg(argument);
+        }
+        let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -91,6 +100,16 @@ impl DaemonFixture {
         assert!(output.status.success(), "view --once command succeeded");
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
+
+    fn wait_for_exit_status(&self) -> String {
+        let output = Command::new(Self::binary("terminal-cell-exit"))
+            .arg("--socket")
+            .arg(&self.socket)
+            .output()
+            .expect("exit command runs");
+        assert!(output.status.success(), "exit command succeeded");
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    }
 }
 
 impl Drop for DaemonFixture {
@@ -127,4 +146,17 @@ fn attach_view_replays_transcript_without_owning_the_child() {
     let replay = daemon.view_once_text();
     assert!(replay.contains("agent-ready"));
     assert!(replay.contains("agent-response: hello replayed viewer"));
+}
+
+#[test]
+fn daemon_exposes_terminal_exit_status() {
+    let daemon = DaemonFixture::spawn_shell("exit", "printf 'done-exiting\\n'; exit 7");
+
+    daemon.wait_for_text("done-exiting");
+
+    let status = daemon.wait_for_exit_status();
+    assert!(
+        !status.trim().is_empty(),
+        "terminal-cell-exit prints the child status"
+    );
 }

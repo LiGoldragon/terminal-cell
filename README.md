@@ -14,6 +14,19 @@ nix run .#daemon-witness
 nix run .#ghostty-agent-witness
 ```
 
+Live coding-agent witness:
+
+```sh
+nix run .#live-coding-agent-witness
+```
+
+This starts the real Codex CLI by default, injects a prompt through the
+terminal-cell socket, waits for a marker that only the model response should
+spell, and writes the captured transcript to
+`target/live-coding-agent-witness/transcript.txt`.
+Override the command path with `TERMINAL_CELL_AGENT_BIN` when testing another
+Codex-compatible coding-agent CLI.
+
 Manual Ghostty attach demo:
 
 ```sh

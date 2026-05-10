@@ -90,7 +90,7 @@ impl TerminalViewer {
 
     fn attach(&self) -> ViewResult<()> {
         let mut subscription = self.client.subscribe_from_beginning()?;
-        let _ = self.client.capture()?;
+        self.readiness.confirm_control_plane(&self.client)?;
         self.readiness.announce()?;
         let output = thread::Builder::new()
             .name("terminal-cell-view-output".to_string())
@@ -132,6 +132,10 @@ impl TerminalViewerReadiness {
             fs::write(path, b"terminal-cell-view attached\n")?;
         }
         Ok(())
+    }
+
+    fn confirm_control_plane(&self, client: &TerminalCellSocketClient) -> io::Result<()> {
+        client.capture().map(|_snapshot| ())
     }
 }
 

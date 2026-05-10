@@ -86,6 +86,112 @@
           };
         };
 
+        apps.live-coding-agent-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-live-coding-agent-witness";
+            runtimeInputs = [
+              pkgs.coreutils
+              pkgs.gnugrep
+              pkgs.util-linux
+              toolchain
+            ];
+            text = ''
+              cargo build \
+                --bin terminal-cell-capture \
+                --bin terminal-cell-daemon \
+                --bin terminal-cell-send \
+                --bin terminal-cell-wait
+              target_debug="$(pwd)/target/debug"
+              root="$(mktemp -d -t terminal-cell-live-agent.XXXXXX)"
+              socket="$root/cell.sock"
+              daemon_ready="$root/daemon.ready"
+              workspace="$root/workspace"
+              artifact_dir="target/live-coding-agent-witness"
+              artifact="$artifact_dir/transcript.txt"
+              marker="''${TERMINAL_CELL_LIVE_AGENT_MARKER:-TERMINAL_CELL_LIVE_AGENT_OK}"
+              keep_tmp="''${TERMINAL_CELL_KEEP_LIVE_AGENT_TMP:-0}"
+              mkdir -p "$workspace" "$artifact_dir"
+              mkfifo "$daemon_ready"
+
+              daemon_pid=""
+              cleanup() {
+                status="$?"
+                if [ "$status" -ne 0 ] && [ -S "$socket" ]; then
+                  "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact.failure" 2>/dev/null || true
+                  if [ -s "$artifact.failure" ]; then
+                    printf 'live coding agent failure transcript=%s\n' "$artifact.failure" >&2
+                  fi
+                fi
+                if [ -n "$daemon_pid" ]; then
+                  kill -- "-$daemon_pid" 2>/dev/null || kill "$daemon_pid" 2>/dev/null || true
+                  wait "$daemon_pid" 2>/dev/null || true
+                fi
+                if [ "$keep_tmp" = "1" ]; then
+                  printf 'kept live agent temp root=%s\n' "$root"
+                else
+                  rm -rf "$root"
+                fi
+              }
+              trap cleanup EXIT
+
+              agent_bin="''${TERMINAL_CELL_AGENT_BIN:-''${CODEX_EXECUTABLE_PATH:-codex}}"
+              if ! command -v "$agent_bin" >/dev/null 2>&1; then
+                if [ -x "$HOME/.nix-profile/bin/codex" ]; then
+                  agent_bin="$HOME/.nix-profile/bin/codex"
+                else
+                  printf 'live coding agent not found; set TERMINAL_CELL_AGENT_BIN=/path/to/codex-compatible-cli\n' >&2
+                  exit 1
+                fi
+              fi
+
+              model_args=()
+              if [ -n "''${TERMINAL_CELL_CODEX_MODEL:-}" ]; then
+                model_args=(-m "$TERMINAL_CELL_CODEX_MODEL")
+              fi
+
+              setsid "$target_debug/terminal-cell-daemon" \
+                --socket "$socket" \
+                -- "$agent_bin" \
+                  --no-alt-screen \
+                  --sandbox read-only \
+                  --ask-for-approval never \
+                  -C "$workspace" \
+                  "''${model_args[@]}" > "$daemon_ready" 2> "$root/daemon.stderr" &
+              daemon_pid="$!"
+
+              ready_line="$(timeout 20s head -n 1 "$daemon_ready")"
+              if [ -z "$ready_line" ]; then
+                printf 'terminal-cell daemon did not announce readiness\n' >&2
+                exit 1
+              fi
+              printf '%s\n' "$ready_line"
+
+              deadline=$((SECONDS + 30))
+              while [ "$SECONDS" -lt "$deadline" ]; do
+                transcript="$("$target_debug/terminal-cell-capture" --socket "$socket" || true)"
+                if printf '%s' "$transcript" | grep -Eq 'Quick safety check|Yes, I trust this folder|Enter to confirm'; then
+                  "$target_debug/terminal-cell-send" --socket "$socket" --line ""
+                  break
+                fi
+                if printf '%s' "$transcript" | grep -Eq 'What can I help|Describe a task|Ask Codex'; then
+                  break
+                fi
+                sleep 1
+              done
+
+              live_prompt="Reply with exactly the uppercase underscore-separated form of these five words, and no other text: terminal cell live agent ok."
+              "$target_debug/terminal-cell-send" --socket "$socket" --bytes "$live_prompt"
+              timeout 60s "$target_debug/terminal-cell-wait" --socket "$socket" --text "uppercase"
+              enter_bytes=$'\r'
+              "$target_debug/terminal-cell-send" --socket "$socket" --bytes "$enter_bytes"
+              timeout 300s "$target_debug/terminal-cell-wait" --socket "$socket" --text "$marker"
+              "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact"
+              grep -q "$marker" "$artifact"
+              printf 'live coding agent witness transcript=%s\n' "$artifact"
+            '';
+          };
+        };
+
         apps.ghostty-agent-demo = flake-utils.lib.mkApp {
           drv = pkgs.writeShellApplication {
             name = "terminal-cell-ghostty-agent-demo";
@@ -156,6 +262,7 @@
                 --bin agent-terminal-fixture \
                 --bin terminal-cell-capture \
                 --bin terminal-cell-daemon \
+                --bin terminal-cell-exit \
                 --bin terminal-cell-send \
                 --bin terminal-cell-view \
                 --bin terminal-cell-wait
@@ -225,6 +332,7 @@
                 --bin agent-terminal-fixture \
                 --bin terminal-cell-capture \
                 --bin terminal-cell-daemon \
+                --bin terminal-cell-exit \
                 --bin terminal-cell-send \
                 --bin terminal-cell-view \
                 --bin terminal-cell-wait
@@ -240,13 +348,17 @@
 
               daemon_pid=""
               ghostty_pid=""
+              kill_session_process() {
+                pid="''${1:-}"
+                if [ -z "$pid" ]; then
+                  return 0
+                fi
+                kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+                wait "$pid" 2>/dev/null || true
+              }
               cleanup_on_failure() {
-                if [ -n "$ghostty_pid" ]; then
-                  kill "$ghostty_pid" 2>/dev/null || true
-                fi
-                if [ -n "$daemon_pid" ]; then
-                  kill "$daemon_pid" 2>/dev/null || true
-                fi
+                kill_session_process "$ghostty_pid"
+                kill_session_process "$daemon_pid"
                 rm -rf "$session"
               }
               trap cleanup_on_failure EXIT
@@ -329,7 +441,7 @@
                   [ -e "$pid_file" ] || continue
                   pid="$(cat "$pid_file")"
                   if [ -n "$pid" ]; then
-                    kill "$pid" 2>/dev/null || true
+                    kill -- "-$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
                   fi
                 done
                 rm -rf "$session"

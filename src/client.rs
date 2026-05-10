@@ -44,6 +44,12 @@ impl TerminalCellSocketClient {
         SocketReplyReader::new(&mut stream).read_wait_satisfied()
     }
 
+    pub fn wait_for_terminal_exit(&self) -> io::Result<String> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        SocketRequestWriter::new(&mut stream).write_wait_exit_request()?;
+        SocketReplyReader::new(&mut stream).read_exit_status()
+    }
+
     pub fn subscribe_from_beginning(&self) -> io::Result<UnixStream> {
         let mut stream = UnixStream::connect(&self.socket)?;
         SocketRequestWriter::new(&mut stream).write_subscription_request()?;
