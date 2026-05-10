@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
 use kameo::actor::{ActorRef, Spawn};
@@ -74,6 +75,27 @@ pub struct TerminalLaunch {
 impl TerminalLaunch {
     pub fn new(command: TerminalCommand, size: TerminalSize) -> Self {
         Self { command, size }
+    }
+}
+
+#[doc(hidden)]
+pub struct TerminalCellStart {
+    launch: TerminalLaunch,
+    input_port: TerminalInputPort,
+    input_receiver: Receiver<TerminalInput>,
+}
+
+impl TerminalCellStart {
+    fn new(
+        launch: TerminalLaunch,
+        input_port: TerminalInputPort,
+        input_receiver: Receiver<TerminalInput>,
+    ) -> Self {
+        Self {
+            launch,
+            input_port,
+            input_receiver,
+        }
     }
 }
 
@@ -216,6 +238,45 @@ impl TerminalInput {
 
     pub const fn source(&self) -> InputSource {
         self.source
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TerminalInputPort {
+    sender: Sender<TerminalInput>,
+}
+
+impl TerminalInputPort {
+    fn new(sender: Sender<TerminalInput>) -> Self {
+        Self { sender }
+    }
+
+    pub fn accept(&self, input: TerminalInput) -> Result<InputAcceptance, TerminalCellError> {
+        let source = input.source();
+        self.sender
+            .send(input)
+            .map_err(|_| TerminalCellError::InputClosed)?;
+        Ok(InputAcceptance::new(source))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TerminalCellSession {
+    actor: ActorRef<TerminalCell>,
+    input_port: TerminalInputPort,
+}
+
+impl TerminalCellSession {
+    fn new(actor: ActorRef<TerminalCell>, input_port: TerminalInputPort) -> Self {
+        Self { actor, input_port }
+    }
+
+    pub fn actor(&self) -> ActorRef<TerminalCell> {
+        self.actor.clone()
+    }
+
+    pub fn input_port(&self) -> TerminalInputPort {
+        self.input_port.clone()
     }
 }
 
@@ -379,7 +440,7 @@ impl TerminalExitWaiter {
 
 pub struct TerminalCell {
     master: Box<dyn MasterPty + Send>,
-    input_writer: Box<dyn Write + Send>,
+    input_port: TerminalInputPort,
     child_killer: Box<dyn ChildKiller + Send + Sync>,
     transcript: TerminalTranscript,
     subscribers: broadcast::Sender<TranscriptDelta>,
@@ -390,7 +451,14 @@ pub struct TerminalCell {
 
 impl TerminalCell {
     pub fn spawn_cell(launch: TerminalLaunch) -> ActorRef<Self> {
-        Self::spawn(launch)
+        Self::spawn_session(launch).actor()
+    }
+
+    pub fn spawn_session(launch: TerminalLaunch) -> TerminalCellSession {
+        let (sender, receiver) = mpsc::channel();
+        let input_port = TerminalInputPort::new(sender);
+        let actor = Self::spawn(TerminalCellStart::new(launch, input_port.clone(), receiver));
+        TerminalCellSession::new(actor, input_port)
     }
 
     fn notify_waiters(&mut self) {
@@ -418,25 +486,40 @@ impl TerminalCell {
 }
 
 impl Actor for TerminalCell {
-    type Args = TerminalLaunch;
+    type Args = TerminalCellStart;
     type Error = TerminalCellError;
 
     async fn on_start(args: Self::Args, actor_ref: ActorRef<Self>) -> Result<Self, Self::Error> {
         let pty_system = native_pty_system();
         let pair = pty_system
-            .openpty(args.size.into_pty_size())
+            .openpty(args.launch.size.into_pty_size())
             .map_err(TerminalCellError::pty)?;
         let mut child = pair
             .slave
-            .spawn_command(args.command.into_builder())
+            .spawn_command(args.launch.command.into_builder())
             .map_err(TerminalCellError::pty)?;
         let child_killer = child.clone_killer();
         let mut reader = pair
             .master
             .try_clone_reader()
             .map_err(TerminalCellError::pty)?;
-        let input_writer = pair.master.take_writer().map_err(TerminalCellError::pty)?;
+        let mut input_writer = pair.master.take_writer().map_err(TerminalCellError::pty)?;
+        let input_receiver = args.input_receiver;
         drop(pair.slave);
+
+        thread::Builder::new()
+            .name("terminal-cell-input".to_string())
+            .spawn(move || {
+                while let Ok(input) = input_receiver.recv() {
+                    if input_writer.write_all(input.bytes()).is_err() {
+                        break;
+                    }
+                    if input_writer.flush().is_err() {
+                        break;
+                    }
+                }
+            })
+            .expect("terminal input thread starts");
 
         let output_ref = actor_ref.clone();
         thread::Builder::new()
@@ -471,7 +554,7 @@ impl Actor for TerminalCell {
         let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             master: pair.master,
-            input_writer,
+            input_port: args.input_port,
             child_killer,
             transcript: TerminalTranscript::new(),
             subscribers,
@@ -518,11 +601,7 @@ impl Message<TerminalInput> for TerminalCell {
         message: TerminalInput,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        self.input_writer
-            .write_all(message.bytes())
-            .map_err(TerminalCellError::pty)?;
-        self.input_writer.flush().map_err(TerminalCellError::pty)?;
-        Ok(InputAcceptance::new(message.source()))
+        self.input_port.accept(message)
     }
 }
 

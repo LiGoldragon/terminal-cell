@@ -1,7 +1,7 @@
 use std::env;
 use std::error::Error;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -11,9 +11,10 @@ use kameo::actor::ActorRef;
 use tokio::runtime::Handle;
 
 use terminal_cell::{
-    SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell, TerminalCommand,
-    TerminalInput, TerminalLaunch, TerminalSize, TranscriptSnapshotRequest,
-    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
+    InputSource, SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell,
+    TerminalCommand, TerminalInput, TerminalInputPort, TerminalLaunch, TerminalSize,
+    TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
+    WaitForTranscriptText,
 };
 
 type TerminalDaemonResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -76,7 +77,9 @@ impl TerminalCellDaemon {
     }
 
     async fn run(self) -> TerminalDaemonResult<()> {
-        let terminal = TerminalCell::spawn_cell(self.launch);
+        let session = TerminalCell::spawn_session(self.launch);
+        let terminal = session.actor();
+        let input_port = session.input_port();
         terminal
             .wait_for_startup_result()
             .await
@@ -90,7 +93,7 @@ impl TerminalCellDaemon {
         io::stdout().flush()?;
 
         tokio::task::spawn_blocking(move || {
-            TerminalCellDaemonLoop::new(listener, terminal, runtime).run()
+            TerminalCellDaemonLoop::new(listener, terminal, input_port, runtime).run()
         })
         .await??;
         Ok(())
@@ -122,14 +125,21 @@ impl TerminalSocketFile {
 struct TerminalCellDaemonLoop {
     listener: UnixListener,
     terminal: ActorRef<TerminalCell>,
+    input_port: TerminalInputPort,
     runtime: Handle,
 }
 
 impl TerminalCellDaemonLoop {
-    fn new(listener: UnixListener, terminal: ActorRef<TerminalCell>, runtime: Handle) -> Self {
+    fn new(
+        listener: UnixListener,
+        terminal: ActorRef<TerminalCell>,
+        input_port: TerminalInputPort,
+        runtime: Handle,
+    ) -> Self {
         Self {
             listener,
             terminal,
+            input_port,
             runtime,
         }
     }
@@ -138,11 +148,13 @@ impl TerminalCellDaemonLoop {
         for incoming in self.listener.incoming() {
             let stream = incoming?;
             let terminal = self.terminal.clone();
+            let input_port = self.input_port.clone();
             let runtime = self.runtime.clone();
             thread::Builder::new()
                 .name("terminal-cell-connection".to_string())
                 .spawn(move || {
-                    if let Err(error) = TerminalCellConnection::new(stream, terminal, runtime).run()
+                    if let Err(error) =
+                        TerminalCellConnection::new(stream, terminal, input_port, runtime).run()
                     {
                         eprintln!("terminal cell connection failed: {error}");
                     }
@@ -155,14 +167,21 @@ impl TerminalCellDaemonLoop {
 struct TerminalCellConnection {
     stream: UnixStream,
     terminal: ActorRef<TerminalCell>,
+    input_port: TerminalInputPort,
     runtime: Handle,
 }
 
 impl TerminalCellConnection {
-    fn new(stream: UnixStream, terminal: ActorRef<TerminalCell>, runtime: Handle) -> Self {
+    fn new(
+        stream: UnixStream,
+        terminal: ActorRef<TerminalCell>,
+        input_port: TerminalInputPort,
+        runtime: Handle,
+    ) -> Self {
         Self {
             stream,
             terminal,
+            input_port,
             runtime,
         }
     }
@@ -173,6 +192,7 @@ impl TerminalCellConnection {
             SocketRequest::Capture => self.write_snapshot(),
             SocketRequest::SubscribeFromBeginning => self.stream_subscription(),
             SocketRequest::Input(input) => self.write_input(input),
+            SocketRequest::ViewerInputStream => self.stream_viewer_input(),
             SocketRequest::Resize(size) => self.write_resize(size),
             SocketRequest::Wait(wait) => self.wait_for_text(wait),
             SocketRequest::WaitExit => self.wait_for_exit(),
@@ -201,11 +221,28 @@ impl TerminalCellConnection {
 
     fn write_input(&mut self, input: TerminalInput) -> io::Result<()> {
         let acceptance = self
-            .runtime
-            .block_on(async { self.terminal.ask(input).await })
-            .map_err(Self::actor_error)?;
+            .input_port
+            .accept(input)
+            .map_err(Self::terminal_error)?;
         let _accepted_source = acceptance.source();
         SocketReplyWriter::new(&mut self.stream).write_acceptance()
+    }
+
+    fn stream_viewer_input(&mut self) -> io::Result<()> {
+        let mut buffer = [0_u8; 4096];
+        loop {
+            let count = self.stream.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            self.input_port
+                .accept(TerminalInput::new(
+                    buffer[..count].to_vec(),
+                    InputSource::Viewer,
+                ))
+                .map_err(Self::terminal_error)?;
+        }
+        Ok(())
     }
 
     fn write_resize(&mut self, size: TerminalSize) -> io::Result<()> {
@@ -259,6 +296,10 @@ impl TerminalCellConnection {
     }
 
     fn actor_error(error: impl std::fmt::Display) -> io::Error {
+        io::Error::new(io::ErrorKind::BrokenPipe, error.to_string())
+    }
+
+    fn terminal_error(error: terminal_cell::TerminalCellError) -> io::Error {
         io::Error::new(io::ErrorKind::BrokenPipe, error.to_string())
     }
 }

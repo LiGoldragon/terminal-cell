@@ -6,6 +6,7 @@ const CAPTURE_REQUEST: u8 = b'C';
 const SUBSCRIBE_REQUEST: u8 = b'S';
 const PROGRAMMATIC_INPUT_REQUEST: u8 = b'P';
 const VIEWER_INPUT_REQUEST: u8 = b'V';
+const VIEWER_INPUT_STREAM_REQUEST: u8 = b'I';
 const RESIZE_REQUEST: u8 = b'R';
 const WAIT_REQUEST: u8 = b'W';
 const WAIT_EXIT_REQUEST: u8 = b'X';
@@ -18,6 +19,7 @@ pub enum SocketRequest {
     Capture,
     SubscribeFromBeginning,
     Input(TerminalInput),
+    ViewerInputStream,
     Resize(TerminalSize),
     Wait(WaitForTranscriptText),
     WaitExit,
@@ -55,6 +57,7 @@ where
                     InputSource::Viewer,
                 )))
             }
+            VIEWER_INPUT_STREAM_REQUEST => Ok(SocketRequest::ViewerInputStream),
             RESIZE_REQUEST => {
                 let rows = self.read_u16()?;
                 let columns = self.read_u16()?;
@@ -129,6 +132,11 @@ where
     pub fn write_viewer_input(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.writer.write_all(&[VIEWER_INPUT_REQUEST])?;
         self.write_frame(bytes)?;
+        self.writer.flush()
+    }
+
+    pub fn write_viewer_input_stream_request(&mut self) -> io::Result<()> {
+        self.writer.write_all(&[VIEWER_INPUT_STREAM_REQUEST])?;
         self.writer.flush()
     }
 

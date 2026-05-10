@@ -39,6 +39,9 @@ flowchart LR
 - `TranscriptSubscription` - replay plus live delta receiver for a viewer.
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
+- `TerminalInputPort` - typed, low-latency ingress to the PTY writer. Viewer
+  input must use this path directly instead of waiting behind transcript
+  control messages.
 - `TerminalExit` - recorded child status, observable through the actor and
   socket protocol without polling the child process.
 - `TerminalCellSocketClient` - thin Unix-socket client used by command-line
@@ -72,8 +75,11 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - Output emitted while no viewer is subscribed is still appended to transcript
   truth.
 - A late viewer receives replayed transcript before live deltas.
-- Programmatic input and viewer keyboard input enter through the same input
-  port.
+- Programmatic input and viewer keyboard input enter through the same typed
+  input port.
+- Viewer keyboard input uses one persistent socket stream. It does not open a
+  new framed request per key and does not wait for the transcript actor before
+  reading the next key.
 - Viewer attach sends the actual GUI terminal rows/columns to the cell before
   replay, so full-screen TUIs are not trapped in a canned fixture size.
 - Terminal input is raw bytes; slash commands are not parsed by the terminal
@@ -103,6 +109,7 @@ is owned by the actor, not by those threads, not by a viewer, and not by a CLI.
 - `attach_view_replays_transcript_without_owning_the_child`
 - `daemon_exposes_terminal_exit_status`
 - `daemon_resizes_the_owned_pty`
+- `viewer_input_stream_keeps_one_low_latency_input_path`
 - `nix run .#live-coding-agent-witness` starts the real Codex CLI by default,
   injects a prompt through the daemon socket, waits for the model response
   marker that is not present in the injected prompt, and captures the

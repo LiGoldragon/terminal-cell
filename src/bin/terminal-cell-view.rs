@@ -91,6 +91,7 @@ impl TerminalViewer {
     fn attach(&self) -> ViewResult<()> {
         self.resize_attached_terminal()?;
         let mut subscription = self.client.subscribe_from_beginning()?;
+        let mut input_stream = self.client.open_viewer_input_stream()?;
         self.readiness.confirm_control_plane(&self.client)?;
         self.readiness.announce()?;
         let output = thread::Builder::new()
@@ -109,7 +110,7 @@ impl TerminalViewer {
             if count == 0 {
                 break;
             }
-            self.client.send_viewer_input(&buffer[..count])?;
+            input_stream.write_all(&buffer[..count])?;
         }
 
         output

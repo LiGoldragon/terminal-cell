@@ -8,6 +8,8 @@ pub enum TerminalCellError {
     MissingInputWriter,
     #[error("terminal cell has no active pty master")]
     MissingPtyMaster,
+    #[error("terminal input port is closed")]
+    InputClosed,
 }
 
 impl TerminalCellError {

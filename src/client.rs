@@ -38,6 +38,12 @@ impl TerminalCellSocketClient {
         SocketReplyReader::new(&mut stream).read_acceptance()
     }
 
+    pub fn open_viewer_input_stream(&self) -> io::Result<UnixStream> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        SocketRequestWriter::new(&mut stream).write_viewer_input_stream_request()?;
+        Ok(stream)
+    }
+
     pub fn resize(&self, size: TerminalSize) -> io::Result<()> {
         let mut stream = UnixStream::connect(&self.socket)?;
         SocketRequestWriter::new(&mut stream).write_resize_request(size)?;

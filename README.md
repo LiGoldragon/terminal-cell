@@ -4,6 +4,10 @@ Prototype for a minimal durable terminal session owner: PTY ownership,
 append-only transcript replay, and raw programmatic input without terminal
 multiplexer UI.
 
+Interactive viewers keep one persistent input stream to the daemon. Keyboard
+bytes are accepted by the same typed PTY input port as programmatic bytes, not
+by a per-key socket request that waits behind transcript work.
+
 Run the witness suite:
 
 ```sh

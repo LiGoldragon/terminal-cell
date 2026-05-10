@@ -1,6 +1,6 @@
 use std::env;
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
@@ -86,6 +86,12 @@ impl DaemonFixture {
         TerminalCellSocketClient::new(&self.socket)
             .resize(TerminalSize::new(rows, columns))
             .expect("resize request accepted");
+    }
+
+    fn open_viewer_input_stream(&self) -> std::os::unix::net::UnixStream {
+        TerminalCellSocketClient::new(&self.socket)
+            .open_viewer_input_stream()
+            .expect("viewer input stream opened")
     }
 
     fn capture_text(&self) -> String {
@@ -181,4 +187,19 @@ fn daemon_resizes_the_owned_pty() {
     let transcript = daemon.capture_text();
     assert!(transcript.contains("24 80"));
     assert!(transcript.contains("31 97"));
+}
+
+#[test]
+fn viewer_input_stream_keeps_one_low_latency_input_path() {
+    let daemon = DaemonFixture::spawn("viewer-stream");
+
+    daemon.wait_for_text("agent-ready");
+    let mut stream = daemon.open_viewer_input_stream();
+    stream
+        .write_all(b"hello persistent viewer stream\r")
+        .expect("viewer stream accepts input bytes");
+    daemon.wait_for_text("agent-response: hello persistent viewer stream");
+
+    let transcript = daemon.capture_text();
+    assert!(transcript.contains("agent-response: hello persistent viewer stream"));
 }
