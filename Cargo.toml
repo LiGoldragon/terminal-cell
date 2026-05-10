@@ -1,0 +1,26 @@
+[package]
+name         = "terminal-cell-lab"
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.88"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/LiGoldragon/terminal-cell-lab"
+description  = "Prototype durable terminal session owner with transcript replay."
+publish      = false
+
+[lib]
+name = "terminal_cell_lab"
+path = "src/lib.rs"
+
+[dependencies]
+kameo        = { version = "0.20", features = ["macros"] }
+portable-pty = "0.8"
+thiserror    = "2"
+tokio        = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+vt100        = "0.16"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused      = "warn"
+dead_code   = "warn"
+
