@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::thread;
 
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size};
+use signal_hook::consts::signal::SIGWINCH;
+use signal_hook::iterator::Signals;
 use terminal_cell::{TerminalCellSocketClient, TerminalSize};
 
 type ViewResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -89,7 +91,9 @@ impl TerminalViewer {
     }
 
     fn attach(&self) -> ViewResult<()> {
-        self.resize_attached_terminal()?;
+        let mut resize_watcher = TerminalResizeWatcher::new(self.client.clone());
+        resize_watcher.resize_now()?;
+        let _resize_thread = resize_watcher.spawn()?;
         let mut attach_stream = self.client.open_attach_stream()?;
         let mut output_stream = attach_stream.try_clone()?;
         self.readiness.confirm_control_plane(&self.client)?;
@@ -126,10 +130,51 @@ impl TerminalViewer {
             .map_err(|_| "terminal view output thread panicked")??;
         Ok(())
     }
+}
 
-    fn resize_attached_terminal(&self) -> io::Result<()> {
+struct TerminalResizeWatcher {
+    client: TerminalCellSocketClient,
+    last_size: Option<TerminalSize>,
+}
+
+impl TerminalResizeWatcher {
+    fn new(client: TerminalCellSocketClient) -> Self {
+        Self {
+            client,
+            last_size: None,
+        }
+    }
+
+    fn spawn(mut self) -> io::Result<thread::JoinHandle<()>> {
+        let mut signals = Signals::new([SIGWINCH])?;
+        thread::Builder::new()
+            .name("terminal-cell-view-resize".to_string())
+            .spawn(move || {
+                for _signal in signals.forever() {
+                    if self.resize_now().is_err() {
+                        break;
+                    }
+                }
+            })
+    }
+
+    fn resize_now(&mut self) -> io::Result<()> {
+        let size = AttachedTerminalSize::current()?;
+        if self.last_size == Some(size) {
+            return Ok(());
+        }
+        self.client.resize(size)?;
+        self.last_size = Some(size);
+        Ok(())
+    }
+}
+
+struct AttachedTerminalSize;
+
+impl AttachedTerminalSize {
+    fn current() -> io::Result<TerminalSize> {
         let (columns, rows) = terminal_size()?;
-        self.client.resize(TerminalSize::new(rows, columns))
+        Ok(TerminalSize::new(rows, columns))
     }
 }
 

@@ -7,9 +7,9 @@ without terminal multiplexer UI.
 Status: this is an attach spike for live human TUI use. The first
 `terminal-cell-view` relay design was rejected after manual Pi testing showed
 slow, dropped, and stalled keyboard interaction. The current view sends one
-attach request, then pumps raw bytes over one Unix stream; transcript and actor
-logic observe around that path instead of rendering the human session through
-transcript subscriptions.
+attach request, pumps raw bytes over one Unix stream, and forwards terminal
+resize events to the daemon; transcript and actor logic observe around that
+path instead of rendering the human session through transcript subscriptions.
 
 Do not treat automated Ghostty/Pi witnesses as final proof of a usable human
 attach primitive. They are diagnostics for launch, transcript, injection,

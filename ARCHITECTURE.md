@@ -113,7 +113,8 @@ These are the checked-in components of the attach spike:
 - `terminal-cell-send` / `capture` / `wait` / `exit` - thin command-line
   clients.
 - `terminal-cell-view` - interactive attach client. It sends one attach request,
-  then pumps stdin/stdout over the attached Unix stream.
+  pumps stdin/stdout over the attached Unix stream, and forwards terminal
+  `SIGWINCH` resize events to the daemon.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
   stateful witnesses.
 
@@ -135,6 +136,8 @@ These are the checked-in components of the attach spike:
   framing.
 - The live attach path does not wait on actor handlers, transcript append,
   screen projection, waiters, or Persona decisions.
+- Attached viewers push terminal resize events to the daemon; a PTY must not
+  keep drawing at the size from initial attach after the GUI window changes.
 - Terminal input is raw bytes; slash commands are harness input, not terminal
   owner semantics.
 - Blocking PTY reads and writes are isolated from actor handlers.
