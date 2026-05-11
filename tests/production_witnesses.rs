@@ -274,6 +274,34 @@ fn slow_transcript_subscriber_does_not_block_attached_viewer_output() {
 }
 
 #[test]
+fn attached_input_reaches_child_during_high_volume_output() {
+    let daemon = DaemonFixture::spawn_command(
+        "input-latency-output-flood",
+        &DaemonFixture::binary("output-flood-fixture"),
+        &[],
+    );
+
+    let mut viewer = AttachedStream::new(daemon.open_attach_stream());
+    viewer.read_until("flood-ready", Duration::from_secs(2));
+
+    let started = Instant::now();
+    viewer.write_line("latency-under-output-load");
+    let output = viewer.read_until(
+        "latency-response:latency-under-output-load",
+        Duration::from_secs(3),
+    );
+
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "attached input reached the child before high-volume output could starve it"
+    );
+    assert!(
+        output.contains("flood-"),
+        "the witness ran while the child was emitting high-volume output"
+    );
+}
+
+#[test]
 fn session_selector_skips_newer_stale_sessions() {
     let root = env::temp_dir().join(format!(
         "terminal-cell-session-select-{}",

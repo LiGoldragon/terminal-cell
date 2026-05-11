@@ -26,8 +26,8 @@ The current implementation proves several useful pieces:
 - single active attached viewer authority;
 - headless daemon resize control;
 - live-session selection that skips stale runtime directories;
-- behavioral witnesses for slow transcript subscribers, reattach, and stale
-  session rejection.
+- behavioral witnesses for slow transcript subscribers, reattach, stale session
+  rejection, and attached input under output load.
 
 The previous live-viewer path was rejected after manual Pi testing in Ghostty
 showed slow, dropped, and eventually stalled keyboard interaction:
@@ -74,10 +74,28 @@ That directory holds `cell.sock`, pid files, `session.env`, `session.name`, and
 diagnostic logs. The list and rename tools inspect or update those files; they
 are a local convenience registry, not durable system truth.
 
-The production shape belongs in a higher-level `persona-terminal` supervisor:
-one well-known daemon socket, a Sema-owned session registry, named terminal
-cells, and per-cell attach/control handles. The per-cell daemon remains the
-low-level PTY owner, not the global registry.
+The production shape belongs in a higher-level `persona-terminal` supervisor.
+`terminal-cell` remains the low-level PTY owner for one terminal cell. The
+supervisor owns the global terminal registry: one well-known daemon socket,
+named terminal cells, a Sema-owned session table, per-cell attach/control
+handles, lifecycle health, and policy decisions about which viewer adapter
+opens a visible terminal. `persona-terminal` talks through the
+`signal-persona-terminal` contract; it does not move Persona messages or infer
+harness quota meaning from terminal bytes.
+
+The clean production split is:
+
+```text
+persona-terminal        registry, names, Sema state, lifecycle policy
+signal-persona-terminal typed terminal requests and events
+terminal-cell           one child process group, one PTY, raw attach/control
+viewer adapters         Ghostty/WezTerm/Niri-specific visible windows
+persona-system          OS facts such as focus and window state
+persona-harness         harness-specific prompts, usage probes, quota parsing
+```
+
+This repository may seed the `terminal-cell` primitive inside that stack, but
+it does not become the global `persona-terminal` registry by accretion.
 
 The live byte pump owns the latency-sensitive path:
 
@@ -169,6 +187,8 @@ These are the checked-in components:
   `SIGWINCH` resize events to the daemon.
 - `agent-terminal-fixture` - deterministic agent-like terminal process used by
   stateful witnesses.
+- `output-flood-fixture` - deterministic high-volume output process used to
+  prove attached input still reaches the child under output load.
 
 ## 3 - Constraints
 
@@ -199,6 +219,9 @@ These are the checked-in components:
 - A slow transcript subscriber does not block the attached viewer's output.
 - High-volume child output still reaches the attached viewer while transcript
   subscribers are slow.
+- High-volume child output does not starve attached input. Keyboard bytes sent
+  through the attach stream still reach the child PTY promptly while output is
+  flowing.
 - Attached viewers push terminal resize events to the daemon; a PTY must not
   keep drawing at the size from initial attach after the GUI window changes.
 - Resize is also a daemon control request; an attached viewer is not required
@@ -232,6 +255,7 @@ Current useful witnesses:
 - `second_attached_viewer_is_rejected_while_first_viewer_is_active`
 - `headless_resize_cli_resizes_without_attached_viewer`
 - `slow_transcript_subscriber_does_not_block_attached_viewer_output`
+- `attached_input_reaches_child_during_high_volume_output`
 - `session_selector_skips_newer_stale_sessions`
 - `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`
@@ -251,7 +275,6 @@ Required next witnesses:
 - The same session accepts Persona programmatic input.
 - A gated Persona injection is delivered contiguously while simultaneous human
   input is buffered or rejected according to the gate state.
-- High-volume output does not make keyboard input lag.
 
 ## Code Map
 

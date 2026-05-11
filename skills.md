@@ -17,6 +17,8 @@ Rules for work here:
   writers.
 - Treat PTY output bytes as transcript truth, but record transcript as a
   side-channel observer of the live path.
+- Keep attached input responsive while PTY output is flowing. High-volume output
+  must not put keyboard bytes behind transcript, projection, or observer work.
 - Treat screen snapshots as derived projections, not as live display state.
 - Keep command-line tools as daemon clients. The daemon owns the Kameo
   `TerminalCell`; clients send socket requests.
