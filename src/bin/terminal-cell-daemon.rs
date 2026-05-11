@@ -13,8 +13,10 @@ use tokio::runtime::Handle;
 use terminal_cell::{
     InputSource, SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell,
     TerminalCellError, TerminalCommand, TerminalInput, TerminalInputPort, TerminalLaunch,
-    TerminalOutputPort, TerminalSize, TerminalViewerLease, TranscriptSnapshotRequest,
-    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
+    TerminalOutputPort, TerminalSize, TerminalViewerLease, TerminalWorkerKind,
+    TerminalWorkerLifecycle, TerminalWorkerObservationRequest, TerminalWorkerStop,
+    TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
+    WaitForTranscriptText,
 };
 
 type TerminalDaemonResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -158,8 +160,26 @@ impl TerminalCellDaemonLoop {
     }
 
     fn run(self) -> io::Result<()> {
+        let _ = self
+            .terminal
+            .tell(TerminalWorkerLifecycle::Started(
+                TerminalWorkerKind::SocketAcceptLoop,
+            ))
+            .try_send();
         for incoming in self.listener.incoming() {
-            let stream = incoming?;
+            let stream = match incoming {
+                Ok(stream) => stream,
+                Err(error) => {
+                    let _ = self
+                        .terminal
+                        .tell(TerminalWorkerLifecycle::Stopped {
+                            worker: TerminalWorkerKind::SocketAcceptLoop,
+                            reason: TerminalWorkerStop::SocketAcceptFailed(error.to_string()),
+                        })
+                        .try_send();
+                    return Err(error);
+                }
+            };
             let terminal = self.terminal.clone();
             let input_port = self.input_port.clone();
             let output_port = self.output_port.clone();
@@ -221,6 +241,7 @@ impl TerminalCellConnection {
             SocketRequest::Resize(size) => self.write_resize(size),
             SocketRequest::Wait(wait) => self.wait_for_text(wait),
             SocketRequest::WaitExit => self.wait_for_exit(),
+            SocketRequest::WorkerObservation => self.write_worker_observation(),
         }
     }
 
@@ -275,7 +296,13 @@ impl TerminalCellConnection {
             .activate_viewer(lease, self.stream.try_clone()?)
             .map_err(Self::terminal_error)?;
 
+        self.record_worker_started(TerminalWorkerKind::AttachConnectionPump);
         let result = self.pump_viewer_input();
+        let reason = match &result {
+            Ok(()) => TerminalWorkerStop::AttachConnectionClosed,
+            Err(error) => TerminalWorkerStop::AttachConnectionFailed(error.to_string()),
+        };
+        self.record_worker_stopped(TerminalWorkerKind::AttachConnectionPump, reason);
         let _ = self.output_port.detach(lease);
         result
     }
@@ -360,6 +387,14 @@ impl TerminalCellConnection {
         SocketReplyWriter::new(&mut self.stream).write_exit_status(exit.status())
     }
 
+    fn write_worker_observation(&mut self) -> io::Result<()> {
+        let observation = self
+            .runtime
+            .block_on(async { self.terminal.ask(TerminalWorkerObservationRequest).await })
+            .map_err(Self::actor_error)?;
+        SocketReplyWriter::new(&mut self.stream).write_snapshot(observation.to_text().as_bytes())
+    }
+
     fn subscription(&self) -> io::Result<terminal_cell::TranscriptSubscription> {
         let reply = self
             .runtime
@@ -378,6 +413,20 @@ impl TerminalCellConnection {
 
     fn terminal_error(error: terminal_cell::TerminalCellError) -> io::Error {
         io::Error::new(io::ErrorKind::BrokenPipe, error.to_string())
+    }
+
+    fn record_worker_started(&self, worker: TerminalWorkerKind) {
+        let _ = self
+            .terminal
+            .tell(TerminalWorkerLifecycle::Started(worker))
+            .try_send();
+    }
+
+    fn record_worker_stopped(&self, worker: TerminalWorkerKind, reason: TerminalWorkerStop) {
+        let _ = self
+            .terminal
+            .tell(TerminalWorkerLifecycle::Stopped { worker, reason })
+            .try_send();
     }
 }
 

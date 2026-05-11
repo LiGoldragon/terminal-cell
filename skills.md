@@ -5,6 +5,11 @@ Work here when testing the minimal terminal-owner shape.
 Rules for work here:
 
 - Keep lifecycle and control state actor-shaped.
+- Keep blocking OS-I/O planes as named, supervisor-observable workers when they
+  carry raw bytes or block on the OS. The `TerminalCell` actor owns lifecycle
+  state and records `TerminalWorkerLifecycle`; the worker owns the blocking
+  byte pump. This applies to PTY workers and daemon workers such as socket
+  accept and attach pumping.
 - Keep the live human attach path out of actor mailboxes, transcript replay,
   and screen projection. It is a raw byte pump with minimal attach/detach/resize
   framing.

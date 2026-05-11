@@ -3,8 +3,9 @@ use kameo::actor::ActorRef;
 use terminal_cell::{
     InputSource, ScreenProjectionRequest, TerminalCell, TerminalCellSession, TerminalCommand,
     TerminalExitRequest, TerminalInput, TerminalLaunch, TerminalSequence, TerminalSize,
+    TerminalWorkerKind, TerminalWorkerObservationRequest, TerminalWorkerStop,
     TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
-    WaitForTranscriptText,
+    WaitForTerminalWorkerStop, WaitForTranscriptText,
 };
 
 struct TerminalFixture {
@@ -142,4 +143,65 @@ async fn terminal_exit_is_observable_without_polling_the_child() {
         .expect("exit snapshot delivered")
         .expect("terminal exit already recorded");
     assert_eq!(observed, exit);
+}
+
+#[tokio::test]
+async fn terminal_worker_lifecycle_is_actor_observable() {
+    let terminal = TerminalFixture::spawn_shell("printf 'worker-before-exit\\n'; exit 3");
+
+    assert!(
+        terminal
+            .ask(WaitForTranscriptText::new(b"worker-before-exit".to_vec()))
+            .await
+            .expect("wait message delivered"),
+        "fixture output reached transcript before exit"
+    );
+
+    let output_reader_stop = terminal
+        .ask(WaitForTerminalWorkerStop::new(
+            TerminalWorkerKind::OutputReader,
+        ))
+        .await
+        .expect("output reader stop wait delivered");
+    assert_eq!(output_reader_stop, TerminalWorkerStop::OutputReaderFinished);
+
+    let child_exit_stop = terminal
+        .ask(WaitForTerminalWorkerStop::new(
+            TerminalWorkerKind::ChildExitWatcher,
+        ))
+        .await
+        .expect("child exit watcher stop wait delivered");
+    assert!(
+        matches!(child_exit_stop, TerminalWorkerStop::ChildExited(_)),
+        "child exit watcher records the real child wait result"
+    );
+
+    let observation = terminal
+        .ask(TerminalWorkerObservationRequest)
+        .await
+        .expect("worker observation returned");
+
+    for worker in [
+        TerminalWorkerKind::InputWriter,
+        TerminalWorkerKind::OutputFanout,
+        TerminalWorkerKind::OutputReader,
+        TerminalWorkerKind::ChildExitWatcher,
+    ] {
+        assert!(
+            observation.has_started(worker),
+            "{worker:?} start is reported through the TerminalCell actor"
+        );
+    }
+
+    assert_eq!(
+        observation.stopped_reason(TerminalWorkerKind::OutputReader),
+        Some(&TerminalWorkerStop::OutputReaderFinished)
+    );
+    assert!(
+        matches!(
+            observation.stopped_reason(TerminalWorkerKind::ChildExitWatcher),
+            Some(TerminalWorkerStop::ChildExited(_))
+        ),
+        "child exit watcher stop is reported through the TerminalCell actor"
+    );
 }

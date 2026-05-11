@@ -174,6 +174,130 @@ impl TranscriptSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TerminalWorkerKind {
+    InputWriter,
+    OutputFanout,
+    OutputReader,
+    ChildExitWatcher,
+    SocketAcceptLoop,
+    AttachConnectionPump,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Reply)]
+pub enum TerminalWorkerStop {
+    InputCommandChannelClosed,
+    InputWriteFailed(String),
+    OutputCommandChannelClosed,
+    OutputReaderFinished,
+    OutputReadFailed(String),
+    OutputPortClosed,
+    ChildExited(String),
+    ChildWaitFailed(String),
+    SocketAcceptFailed(String),
+    AttachConnectionClosed,
+    AttachConnectionFailed(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TerminalWorkerLifecycle {
+    Started(TerminalWorkerKind),
+    Stopped {
+        worker: TerminalWorkerKind,
+        reason: TerminalWorkerStop,
+    },
+}
+
+impl TerminalWorkerLifecycle {
+    pub const fn worker(&self) -> TerminalWorkerKind {
+        match self {
+            Self::Started(worker) | Self::Stopped { worker, .. } => *worker,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalWorkerObservation {
+    events: Vec<TerminalWorkerLifecycle>,
+}
+
+impl TerminalWorkerObservation {
+    fn new() -> Self {
+        Self { events: Vec::new() }
+    }
+
+    fn record(&mut self, lifecycle: TerminalWorkerLifecycle) {
+        self.events.push(lifecycle);
+    }
+
+    pub fn events(&self) -> &[TerminalWorkerLifecycle] {
+        self.events.as_slice()
+    }
+
+    pub fn has_started(&self, worker: TerminalWorkerKind) -> bool {
+        self.events
+            .iter()
+            .any(|event| matches!(event, TerminalWorkerLifecycle::Started(kind) if *kind == worker))
+    }
+
+    pub fn stopped_reason(&self, worker: TerminalWorkerKind) -> Option<&TerminalWorkerStop> {
+        self.events.iter().rev().find_map(|event| match event {
+            TerminalWorkerLifecycle::Stopped {
+                worker: stopped_worker,
+                reason,
+            } if *stopped_worker == worker => Some(reason),
+            TerminalWorkerLifecycle::Started(_)
+            | TerminalWorkerLifecycle::Stopped {
+                worker: _,
+                reason: _,
+            } => None,
+        })
+    }
+
+    pub fn to_text(&self) -> String {
+        let mut text = String::new();
+        for event in &self.events {
+            match event {
+                TerminalWorkerLifecycle::Started(worker) => {
+                    text.push_str(&format!("started:{worker:?}\n"));
+                }
+                TerminalWorkerLifecycle::Stopped { worker, reason } => {
+                    text.push_str(&format!("stopped:{worker:?}:{reason:?}\n"));
+                }
+            }
+        }
+        text
+    }
+}
+
+struct TerminalWorkerReporter {
+    actor: ActorRef<TerminalCell>,
+    worker: TerminalWorkerKind,
+}
+
+impl TerminalWorkerReporter {
+    fn new(actor: ActorRef<TerminalCell>, worker: TerminalWorkerKind) -> Self {
+        Self { actor, worker }
+    }
+
+    fn started(&self) {
+        let _ = self
+            .actor
+            .tell(TerminalWorkerLifecycle::Started(self.worker))
+            .try_send();
+    }
+
+    fn stopped(&self, reason: TerminalWorkerStop) {
+        let _ = self
+            .actor
+            .tell(TerminalWorkerLifecycle::Stopped {
+                worker: self.worker,
+                reason,
+            })
+            .try_send();
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TerminalTranscript {
     deltas: Vec<TranscriptDelta>,
@@ -409,30 +533,31 @@ impl TerminalInputWriter {
         }
     }
 
-    fn run(&mut self, receiver: Receiver<TerminalInputCommand>) {
+    fn run(&mut self, receiver: Receiver<TerminalInputCommand>) -> TerminalWorkerStop {
         while let Ok(command) = receiver.recv() {
-            if !self.handle(command) {
-                break;
+            if let Err(reason) = self.handle(command) {
+                return reason;
             }
         }
+        TerminalWorkerStop::InputCommandChannelClosed
     }
 
-    fn handle(&mut self, command: TerminalInputCommand) -> bool {
+    fn handle(&mut self, command: TerminalInputCommand) -> Result<(), TerminalWorkerStop> {
         match command {
             TerminalInputCommand::Write(input) => self
                 .input_gate
                 .write_input(self.writer.as_mut(), input)
-                .is_ok(),
+                .map_err(|error| TerminalWorkerStop::InputWriteFailed(error.to_string())),
             TerminalInputCommand::CloseHumanInput(reply) => {
                 let _ = reply.send(Ok(self.input_gate.close_human_input()));
-                true
+                Ok(())
             }
             TerminalInputCommand::OpenHumanInput(lease, reply) => {
                 let _ = reply.send(
                     self.input_gate
                         .open_human_input(lease, self.writer.as_mut()),
                 );
-                true
+                Ok(())
             }
         }
     }
@@ -634,7 +759,7 @@ impl TerminalOutputFanout {
         }
     }
 
-    fn run(&mut self, receiver: Receiver<TerminalOutputCommand>) {
+    fn run(&mut self, receiver: Receiver<TerminalOutputCommand>) -> TerminalWorkerStop {
         while let Ok(command) = receiver.recv() {
             match command {
                 TerminalOutputCommand::Bytes(bytes) => self.write_bytes(bytes),
@@ -645,6 +770,7 @@ impl TerminalOutputFanout {
                 TerminalOutputCommand::Detach(lease) => self.detach(lease),
             }
         }
+        TerminalWorkerStop::OutputCommandChannelClosed
     }
 
     fn reserve(&mut self, reply: Sender<Result<TerminalViewerLease, TerminalCellError>>) {
@@ -882,6 +1008,24 @@ impl WaitForTranscriptText {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WaitForTerminalExit;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalWorkerObservationRequest;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WaitForTerminalWorkerStop {
+    worker: TerminalWorkerKind,
+}
+
+impl WaitForTerminalWorkerStop {
+    pub const fn new(worker: TerminalWorkerKind) -> Self {
+        Self { worker }
+    }
+
+    pub const fn worker(&self) -> TerminalWorkerKind {
+        self.worker
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Reply)]
 pub struct TerminalExit {
     status: String,
@@ -944,13 +1088,30 @@ impl TerminalExitWaiter {
     }
 }
 
+struct TerminalWorkerWaiter {
+    worker: TerminalWorkerKind,
+    sender: ReplySender<TerminalWorkerStop>,
+}
+
+impl TerminalWorkerWaiter {
+    fn new(worker: TerminalWorkerKind, sender: ReplySender<TerminalWorkerStop>) -> Self {
+        Self { worker, sender }
+    }
+
+    const fn worker(&self) -> TerminalWorkerKind {
+        self.worker
+    }
+}
+
 pub struct TerminalCell {
     master: Box<dyn MasterPty + Send>,
     child_killer: Box<dyn ChildKiller + Send + Sync>,
     transcript: TerminalTranscript,
+    workers: TerminalWorkerObservation,
     subscribers: broadcast::Sender<TranscriptDelta>,
     waiters: Vec<TranscriptWaiter>,
     exit_waiters: Vec<TerminalExitWaiter>,
+    worker_waiters: Vec<TerminalWorkerWaiter>,
     exit: Option<TerminalExit>,
 }
 
@@ -995,6 +1156,18 @@ impl TerminalCell {
             waiter.sender.send(exit.clone());
         }
     }
+
+    fn notify_worker_waiters(&mut self, worker: TerminalWorkerKind, reason: &TerminalWorkerStop) {
+        let mut waiting = Vec::new();
+        for waiter in self.worker_waiters.drain(..) {
+            if waiter.worker() == worker {
+                waiter.sender.send(reason.clone());
+            } else {
+                waiting.push(waiter);
+            }
+        }
+        self.worker_waiters = waiting;
+    }
 }
 
 impl Actor for TerminalCell {
@@ -1021,51 +1194,89 @@ impl Actor for TerminalCell {
         let output_receiver = args.output_receiver;
         drop(pair.slave);
 
+        let input_reporter =
+            TerminalWorkerReporter::new(actor_ref.clone(), TerminalWorkerKind::InputWriter);
         thread::Builder::new()
             .name("terminal-cell-input".to_string())
             .spawn(move || {
-                TerminalInputWriter::new(input_writer).run(input_receiver);
+                input_reporter.started();
+                let reason = TerminalInputWriter::new(input_writer).run(input_receiver);
+                input_reporter.stopped(reason);
             })
             .expect("terminal input thread starts");
 
         let output_fanout_ref = actor_ref.clone();
+        let output_fanout_reporter =
+            TerminalWorkerReporter::new(actor_ref.clone(), TerminalWorkerKind::OutputFanout);
         thread::Builder::new()
             .name("terminal-cell-output-fanout".to_string())
             .spawn(move || {
-                TerminalOutputFanout::new(output_fanout_ref).run(output_receiver);
+                output_fanout_reporter.started();
+                let reason = TerminalOutputFanout::new(output_fanout_ref).run(output_receiver);
+                output_fanout_reporter.stopped(reason);
             })
             .expect("terminal output fanout thread starts");
 
         let output_reader_port = output_port;
+        let output_reader_reporter =
+            TerminalWorkerReporter::new(actor_ref.clone(), TerminalWorkerKind::OutputReader);
         thread::Builder::new()
             .name("terminal-cell-output-reader".to_string())
             .spawn(move || {
                 let mut buffer = [0_u8; 8192];
-                while let Ok(count) = reader.read(&mut buffer) {
-                    if count == 0 {
-                        break;
-                    }
-                    if output_reader_port
-                        .write_bytes(buffer[..count].to_vec())
-                        .is_err()
-                    {
-                        break;
+                output_reader_reporter.started();
+                loop {
+                    match reader.read(&mut buffer) {
+                        Ok(0) => {
+                            output_reader_reporter
+                                .stopped(TerminalWorkerStop::OutputReaderFinished);
+                            break;
+                        }
+                        Ok(count) => {
+                            if output_reader_port
+                                .write_bytes(buffer[..count].to_vec())
+                                .is_err()
+                            {
+                                output_reader_reporter
+                                    .stopped(TerminalWorkerStop::OutputPortClosed);
+                                break;
+                            }
+                        }
+                        Err(error) => {
+                            output_reader_reporter
+                                .stopped(TerminalWorkerStop::OutputReadFailed(error.to_string()));
+                            break;
+                        }
                     }
                 }
             })
             .expect("terminal output reader thread starts");
 
         let exit_ref = actor_ref;
+        let exit_reporter =
+            TerminalWorkerReporter::new(exit_ref.clone(), TerminalWorkerKind::ChildExitWatcher);
         thread::Builder::new()
             .name("terminal-cell-exit".to_string())
             .spawn(move || {
-                let status = child
-                    .wait()
-                    .map(|status| format!("{status:?}"))
-                    .unwrap_or_else(|error| format!("wait failed: {error}"));
-                let _ = exit_ref
-                    .tell(TerminalExited::new(TerminalExit::new(status)))
-                    .try_send();
+                exit_reporter.started();
+                let (exit, stop) = match child.wait() {
+                    Ok(status) => {
+                        let status = format!("{status:?}");
+                        (
+                            TerminalExit::new(status.clone()),
+                            TerminalWorkerStop::ChildExited(status),
+                        )
+                    }
+                    Err(error) => {
+                        let error = error.to_string();
+                        (
+                            TerminalExit::new(format!("wait failed: {error}")),
+                            TerminalWorkerStop::ChildWaitFailed(error),
+                        )
+                    }
+                };
+                let _ = exit_ref.tell(TerminalExited::new(exit)).try_send();
+                exit_reporter.stopped(stop);
             })
             .expect("terminal exit thread starts");
 
@@ -1074,9 +1285,11 @@ impl Actor for TerminalCell {
             master: pair.master,
             child_killer,
             transcript: TerminalTranscript::new(),
+            workers: TerminalWorkerObservation::new(),
             subscribers,
             waiters: Vec::new(),
             exit_waiters: Vec::new(),
+            worker_waiters: Vec::new(),
             exit: None,
         })
     }
@@ -1107,6 +1320,21 @@ impl Message<TerminalExited> for TerminalCell {
     async fn handle(&mut self, message: TerminalExited, _context: &mut Context<Self, Self::Reply>) {
         self.exit = Some(message.exit);
         self.notify_exit_waiters();
+    }
+}
+
+impl Message<TerminalWorkerLifecycle> for TerminalCell {
+    type Reply = ();
+
+    async fn handle(
+        &mut self,
+        message: TerminalWorkerLifecycle,
+        _context: &mut Context<Self, Self::Reply>,
+    ) {
+        if let TerminalWorkerLifecycle::Stopped { worker, reason } = &message {
+            self.notify_worker_waiters(*worker, reason);
+        }
+        self.workers.record(message);
     }
 }
 
@@ -1146,6 +1374,18 @@ impl Message<TerminalExitRequest> for TerminalCell {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         Ok(self.exit.clone())
+    }
+}
+
+impl Message<TerminalWorkerObservationRequest> for TerminalCell {
+    type Reply = Result<TerminalWorkerObservation, Infallible>;
+
+    async fn handle(
+        &mut self,
+        _message: TerminalWorkerObservationRequest,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        Ok(self.workers.clone())
     }
 }
 
@@ -1214,6 +1454,27 @@ impl Message<WaitForTerminalExit> for TerminalCell {
                 sender.send(exit.clone());
             } else {
                 self.exit_waiters.push(TerminalExitWaiter::new(sender));
+            }
+        }
+        delegated
+    }
+}
+
+impl Message<WaitForTerminalWorkerStop> for TerminalCell {
+    type Reply = DelegatedReply<TerminalWorkerStop>;
+
+    async fn handle(
+        &mut self,
+        message: WaitForTerminalWorkerStop,
+        context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        let (delegated, sender) = context.reply_sender();
+        if let Some(sender) = sender {
+            if let Some(reason) = self.workers.stopped_reason(message.worker()) {
+                sender.send(reason.clone());
+            } else {
+                self.worker_waiters
+                    .push(TerminalWorkerWaiter::new(message.worker(), sender));
             }
         }
         delegated

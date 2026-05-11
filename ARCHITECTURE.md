@@ -130,6 +130,15 @@ render the human session or carry live keyboard bytes. Actor-owned concerns are
 lifecycle, metadata, health, resize authority, child exit, waiters, transcript
 append, and Persona control decisions.
 
+The `TerminalCell` actor is also the supervisor-observation root for the
+blocking workers around it. `TerminalInputWriter`, `TerminalOutputFanout`, the
+PTY output reader, the child-exit watcher, the daemon socket accept loop, and
+the attach connection pump stay blocking workers because they own OS I/O or
+latency-sensitive byte movement. They report typed `TerminalWorkerLifecycle`
+start/stop events to the actor, so worker failure or shutdown becomes
+actor-observable state without putting every terminal byte through the actor
+mailbox.
+
 Transcript recording observes PTY output as a side effect. A slow transcript
 sink records backpressure or loss; it does not slow the attached viewer.
 
@@ -167,6 +176,8 @@ These are the checked-in components:
 - `TerminalInputPort` - typed ingress to the PTY writer.
 - `TerminalInputWriter` - blocking PTY writer plane that owns the input gate
   and serializes all human and programmatic bytes.
+- `TerminalWorkerLifecycle` / `TerminalWorkerObservation` - actor-recorded
+  lifecycle state for blocking PTY and daemon workers.
 - `TerminalInputGateLease` - writer-side lease proving human input is closed
   before a programmatic injection sequence.
 - `TerminalInputGateRelease` - writer-side release record naming the lease and
@@ -231,6 +242,12 @@ These are the checked-in components:
 - Terminal input is raw bytes; slash commands are harness input, not terminal
   owner semantics.
 - Blocking PTY reads and writes are isolated from actor handlers.
+- Blocking workers report typed start/stop lifecycle events to the
+  `TerminalCell` actor. They are supervised by observation: failures become
+  queryable terminal state instead of silent thread death.
+- Daemon-owned blocking planes, including socket accept and attach pumping,
+  use the same worker lifecycle channel instead of inventing a separate
+  monitoring path.
 - CLIs are daemon clients; they do not own the runtime or transcript.
 - Child exit is pushed session state; clients do not poll process tables.
 - GUI witness readiness is a pushed event from the attached view process, not a
@@ -244,6 +261,7 @@ Current useful witnesses:
 - `programmatic_input_uses_the_same_pty_input_port`
 - `screen_projection_is_derived_from_transcript`
 - `terminal_exit_is_observable_without_polling_the_child`
+- `terminal_worker_lifecycle_is_actor_observable`
 - `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
 - `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
 - `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
@@ -256,6 +274,7 @@ Current useful witnesses:
 - `headless_resize_cli_resizes_without_attached_viewer`
 - `slow_transcript_subscriber_does_not_block_attached_viewer_output`
 - `attached_input_reaches_child_during_high_volume_output`
+- `daemon_worker_lifecycle_is_observable_over_socket`
 - `session_selector_skips_newer_stale_sessions`
 - `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`

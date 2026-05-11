@@ -302,6 +302,41 @@ fn attached_input_reaches_child_during_high_volume_output() {
 }
 
 #[test]
+fn daemon_worker_lifecycle_is_observable_over_socket() {
+    let daemon = DaemonFixture::spawn_agent("daemon-worker-lifecycle");
+    daemon.wait_for_text("agent-ready");
+
+    let initial = daemon
+        .client()
+        .worker_observation_text()
+        .expect("worker observation request succeeds");
+    for expected in [
+        "started:InputWriter",
+        "started:OutputFanout",
+        "started:OutputReader",
+        "started:ChildExitWatcher",
+        "started:SocketAcceptLoop",
+    ] {
+        assert!(
+            initial.contains(expected),
+            "daemon worker observation includes {expected}; saw {initial:?}"
+        );
+    }
+
+    let mut viewer = AttachedStream::new(daemon.open_attach_stream());
+    viewer.read_until("agent-ready", Duration::from_secs(2));
+
+    let attached = daemon
+        .client()
+        .worker_observation_text()
+        .expect("worker observation request succeeds while a viewer is attached");
+    assert!(
+        attached.contains("started:AttachConnectionPump"),
+        "attach pump lifecycle is reported through the daemon; saw {attached:?}"
+    );
+}
+
+#[test]
 fn session_selector_skips_newer_stale_sessions() {
     let root = env::temp_dir().join(format!(
         "terminal-cell-session-select-{}",

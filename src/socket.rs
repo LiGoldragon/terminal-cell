@@ -15,6 +15,7 @@ const OPEN_HUMAN_INPUT_REQUEST: u8 = b'O';
 const RESIZE_REQUEST: u8 = b'R';
 const WAIT_REQUEST: u8 = b'W';
 const WAIT_EXIT_REQUEST: u8 = b'X';
+const WORKER_OBSERVATION_REQUEST: u8 = b'H';
 const ACCEPTANCE_REPLY: u8 = b'A';
 const ATTACH_ACCEPTED_REPLY: u8 = b'I';
 const ATTACH_REJECTED_REPLY: u8 = b'J';
@@ -34,6 +35,7 @@ pub enum SocketRequest {
     Resize(TerminalSize),
     Wait(WaitForTranscriptText),
     WaitExit,
+    WorkerObservation,
 }
 
 pub struct SocketRequestReader<Reader> {
@@ -86,6 +88,7 @@ where
                 Ok(SocketRequest::Wait(WaitForTranscriptText::new(bytes)))
             }
             WAIT_EXIT_REQUEST => Ok(SocketRequest::WaitExit),
+            WORKER_OBSERVATION_REQUEST => Ok(SocketRequest::WorkerObservation),
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("unknown socket request tag: {other}"),
@@ -187,6 +190,11 @@ where
 
     pub fn write_wait_exit_request(&mut self) -> io::Result<()> {
         self.writer.write_all(&[WAIT_EXIT_REQUEST])?;
+        self.writer.flush()
+    }
+
+    pub fn write_worker_observation_request(&mut self) -> io::Result<()> {
+        self.writer.write_all(&[WORKER_OBSERVATION_REQUEST])?;
         self.writer.flush()
     }
 

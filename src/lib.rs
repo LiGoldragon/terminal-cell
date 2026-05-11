@@ -14,8 +14,10 @@ pub use session::{
     TerminalCellStart, TerminalCommand, TerminalExit, TerminalExitRequest, TerminalInput,
     TerminalInputGateLease, TerminalInputGateRelease, TerminalInputGateSequence, TerminalInputPort,
     TerminalLaunch, TerminalOutputPort, TerminalSequence, TerminalSize, TerminalViewerLease,
-    TranscriptDelta, TranscriptSnapshot, TranscriptSnapshotRequest, TranscriptSubscription,
-    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
+    TerminalWorkerKind, TerminalWorkerLifecycle, TerminalWorkerObservation,
+    TerminalWorkerObservationRequest, TerminalWorkerStop, TranscriptDelta, TranscriptSnapshot,
+    TranscriptSnapshotRequest, TranscriptSubscription, TranscriptSubscriptionRequest,
+    WaitForTerminalExit, WaitForTerminalWorkerStop, WaitForTranscriptText,
 };
 pub use snapshot::ScreenProjection;
 pub use socket::{

@@ -81,6 +81,17 @@ impl TerminalCellSocketClient {
         SocketReplyReader::new(&mut stream).read_exit_status()
     }
 
+    pub fn worker_observation_text(&self) -> io::Result<String> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        SocketRequestWriter::new(&mut stream).write_worker_observation_request()?;
+        String::from_utf8(SocketReplyReader::new(&mut stream).read_snapshot()?).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("worker observation was not utf-8: {error}"),
+            )
+        })
+    }
+
     pub fn subscribe_from_beginning(&self) -> io::Result<UnixStream> {
         let mut stream = UnixStream::connect(&self.socket)?;
         SocketRequestWriter::new(&mut stream).write_subscription_request()?;
