@@ -534,6 +534,88 @@
           };
         };
 
+        apps.reattach-ghostty-agent-session = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-reattach-ghostty-agent-session";
+            runtimeInputs = [
+              pkgs.coreutils
+              toolchain
+            ];
+            text = ''
+              cargo build --bin terminal-cell-view
+              target_debug="$(pwd)/target/debug"
+              session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
+              session="''${TERMINAL_CELL_SESSION:-}"
+
+              if [ -z "$session" ]; then
+                if [ ! -d "$session_root" ]; then
+                  printf 'no terminal-cell sessions under %s\n' "$session_root" >&2
+                  exit 1
+                fi
+                for candidate in "$session_root"/session-*; do
+                  [ -d "$candidate" ] || continue
+                  [ -S "$candidate/cell.sock" ] || continue
+                  if [ -z "$session" ] || [ "$candidate" -nt "$session" ]; then
+                    session="$candidate"
+                  fi
+                done
+              fi
+
+              if [ -z "$session" ]; then
+                printf 'no live terminal-cell session socket found under %s\n' "$session_root" >&2
+                exit 1
+              fi
+
+              socket="''${TERMINAL_CELL_SOCKET:-$session/cell.sock}"
+              if [ ! -S "$socket" ]; then
+                printf 'terminal-cell socket is missing: %s\n' "$socket" >&2
+                exit 1
+              fi
+
+              ghostty_bin="''${GHOSTTY:-ghostty}"
+              if ! command -v "$ghostty_bin" >/dev/null 2>&1; then
+                if [ -x "$HOME/.nix-profile/bin/ghostty" ]; then
+                  ghostty_bin="$HOME/.nix-profile/bin/ghostty"
+                else
+                  printf 'ghostty not found; set GHOSTTY=/path/to/ghostty\n' >&2
+                  exit 1
+                fi
+              fi
+
+              ghostty_class="''${TERMINAL_CELL_GHOSTTY_CLASS:-com.ligoldragon.terminalcellpi}"
+              ready="$session/reattach-$(date +%Y%m%d-%H%M%S)-$$.ready"
+              mkfifo "$ready"
+
+              ghostty_pid=""
+              cleanup_on_failure() {
+                if [ -n "$ghostty_pid" ]; then
+                  kill -- "-$ghostty_pid" 2>/dev/null || kill "$ghostty_pid" 2>/dev/null || true
+                  wait "$ghostty_pid" 2>/dev/null || true
+                fi
+                rm -f "$ready"
+              }
+              trap cleanup_on_failure EXIT
+
+              setsid "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --socket "$socket" --ready-file "$ready" > "$session/ghostty.reattach.stdout" 2> "$session/ghostty.reattach.stderr" &
+              ghostty_pid="$!"
+              printf '%s\n' "$ghostty_pid" > "$session/ghostty.pid"
+
+              view_line="$(timeout 20s head -n 1 "$ready")"
+              if [ -z "$view_line" ]; then
+                printf 'terminal-cell view did not announce attachment\n' >&2
+                exit 1
+              fi
+
+              trap - EXIT
+              rm -f "$ready"
+              printf '%s\n' "$view_line"
+              printf 'terminal-cell pi session=%s\n' "$session"
+              printf 'terminal-cell socket=%s\n' "$socket"
+              printf 'terminal-cell ghostty pid=%s\n' "$ghostty_pid"
+            '';
+          };
+        };
+
         apps.close-ghostty-agent-sessions = flake-utils.lib.mkApp {
           drv = pkgs.writeShellApplication {
             name = "terminal-cell-close-ghostty-agent-sessions";

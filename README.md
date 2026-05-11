@@ -54,13 +54,16 @@ Durable visible Ghostty session:
 
 ```sh
 nix run .#ghostty-agent-session
+nix run .#reattach-ghostty-agent-session
 nix run .#close-ghostty-agent-sessions
 ```
 
 The session command starts the real Pi TUI in a daemon-owned terminal cell,
 attaches a Ghostty view, and leaves the daemon, socket, view, and initial
 transcript under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*` until the
-window is closed or the close app is run. Override Pi with
+close app is run. Closing the Ghostty window detaches only the view; the
+reattach app opens a new Ghostty view against the newest live session socket.
+Override Pi with
 `TERMINAL_CELL_PI_BIN`, `TERMINAL_CELL_PI_MODEL`, or
 `TERMINAL_CELL_PI_WORKSPACE`.
 
