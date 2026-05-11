@@ -426,10 +426,12 @@
               target_debug="$(pwd)/target/debug"
               session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
               session="$session_root/session-$(date +%Y%m%d-%H%M%S)-$$"
+              session_name="''${TERMINAL_CELL_SESSION_NAME:-$(basename "$session")}"
               socket="$session/cell.sock"
               daemon_ready="$session/daemon.ready"
               view_ready="$session/view.ready"
               mkdir -p "$session"
+              printf '%s\n' "$session_name" > "$session/session.name"
               mkfifo "$daemon_ready"
               mkfifo "$view_ready"
 
@@ -515,6 +517,7 @@
 
               {
                 printf 'TERMINAL_CELL_SESSION=%s\n' "$session"
+                printf 'TERMINAL_CELL_SESSION_NAME=%s\n' "$session_name"
                 printf 'TERMINAL_CELL_SOCKET=%s\n' "$socket"
                 printf 'TERMINAL_CELL_DAEMON_PID=%s\n' "$daemon_pid"
                 printf 'TERMINAL_CELL_GHOSTTY_PID=%s\n' "$ghostty_pid"
@@ -527,6 +530,7 @@
 
               trap - EXIT
               printf 'terminal-cell pi session=%s\n' "$session"
+              printf 'terminal-cell name=%s\n' "$session_name"
               printf 'terminal-cell socket=%s\n' "$socket"
               printf 'terminal-cell initial transcript=%s\n' "$session/transcript.initial"
               printf 'close with: nix run .#close-ghostty-agent-sessions\n'
@@ -571,6 +575,10 @@
                 printf 'terminal-cell socket is missing: %s\n' "$socket" >&2
                 exit 1
               fi
+              session_name="$(basename "$session")"
+              if [ -s "$session/session.name" ]; then
+                session_name="$(head -n 1 "$session/session.name")"
+              fi
 
               ghostty_bin="''${GHOSTTY:-ghostty}"
               if ! command -v "$ghostty_bin" >/dev/null 2>&1; then
@@ -610,8 +618,115 @@
               rm -f "$ready"
               printf '%s\n' "$view_line"
               printf 'terminal-cell pi session=%s\n' "$session"
+              printf 'terminal-cell name=%s\n' "$session_name"
               printf 'terminal-cell socket=%s\n' "$socket"
               printf 'terminal-cell ghostty pid=%s\n' "$ghostty_pid"
+            '';
+          };
+        };
+
+        apps.list-ghostty-agent-sessions = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-list-ghostty-agent-sessions";
+            runtimeInputs = [
+              pkgs.coreutils
+            ];
+            text = ''
+              session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
+              if [ ! -d "$session_root" ]; then
+                printf 'no terminal-cell sessions under %s\n' "$session_root"
+                exit 0
+              fi
+
+              found=0
+              printf 'NAME\tSTATE\tDAEMON\tGHOSTTY\tSOCKET\tSESSION\n'
+              for session in "$session_root"/session-*; do
+                [ -d "$session" ] || continue
+                found=1
+
+                name="$(basename "$session")"
+                if [ -s "$session/session.name" ]; then
+                  name="$(head -n 1 "$session/session.name")"
+                fi
+
+                socket="$session/cell.sock"
+                daemon_pid=""
+                if [ -s "$session/daemon.pid" ]; then
+                  daemon_pid="$(cat "$session/daemon.pid")"
+                fi
+                ghostty_pid=""
+                if [ -s "$session/ghostty.pid" ]; then
+                  ghostty_pid="$(cat "$session/ghostty.pid")"
+                fi
+
+                state="stale"
+                if [ -S "$socket" ] && [ -n "$daemon_pid" ] && kill -0 "$daemon_pid" 2>/dev/null; then
+                  state="alive"
+                fi
+
+                printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$daemon_pid" "$ghostty_pid" "$socket" "$session"
+              done
+
+              if [ "$found" -eq 0 ]; then
+                printf 'no terminal-cell sessions under %s\n' "$session_root"
+              fi
+            '';
+          };
+        };
+
+        apps.rename-ghostty-agent-session = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-rename-ghostty-agent-session";
+            runtimeInputs = [
+              pkgs.coreutils
+              pkgs.gnugrep
+            ];
+            text = ''
+              new_name="''${1:-}"
+              session="''${2:-''${TERMINAL_CELL_SESSION:-}}"
+              session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
+
+              if [ -z "$new_name" ]; then
+                printf 'usage: nix run .#rename-ghostty-agent-session -- <new-name> [session-path]\n' >&2
+                exit 2
+              fi
+
+              case "$new_name" in
+                *$'\n'*)
+                  printf 'terminal-cell session name must be one line\n' >&2
+                  exit 2
+                  ;;
+              esac
+
+              if [ -z "$session" ]; then
+                if [ ! -d "$session_root" ]; then
+                  printf 'no terminal-cell sessions under %s\n' "$session_root" >&2
+                  exit 1
+                fi
+                for candidate in "$session_root"/session-*; do
+                  [ -d "$candidate" ] || continue
+                  [ -S "$candidate/cell.sock" ] || continue
+                  if [ -z "$session" ] || [ "$candidate" -nt "$session" ]; then
+                    session="$candidate"
+                  fi
+                done
+              fi
+
+              if [ -z "$session" ] || [ ! -d "$session" ]; then
+                printf 'terminal-cell session not found: %s\n' "''${session:-<none>}" >&2
+                exit 1
+              fi
+
+              printf '%s\n' "$new_name" > "$session/session.name"
+              if [ -f "$session/session.env" ]; then
+                temporary="$session/session.env.$$"
+                grep -v '^TERMINAL_CELL_SESSION_NAME=' "$session/session.env" > "$temporary" || true
+                printf 'TERMINAL_CELL_SESSION_NAME=%s\n' "$new_name" >> "$temporary"
+                mv "$temporary" "$session/session.env"
+              fi
+
+              printf 'terminal-cell renamed session=%s\n' "$session"
+              printf 'terminal-cell name=%s\n' "$new_name"
             '';
           };
         };

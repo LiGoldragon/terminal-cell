@@ -54,6 +54,8 @@ Durable visible Ghostty session:
 
 ```sh
 nix run .#ghostty-agent-session
+nix run .#list-ghostty-agent-sessions
+nix run .#rename-ghostty-agent-session -- terminal-cell-main
 nix run .#reattach-ghostty-agent-session
 nix run .#close-ghostty-agent-sessions
 ```
@@ -63,9 +65,16 @@ attaches a Ghostty view, and leaves the daemon, socket, view, and initial
 transcript under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*` until the
 close app is run. Closing the Ghostty window detaches only the view; the
 reattach app opens a new Ghostty view against the newest live session socket.
-Override Pi with
+Name a session at launch with `TERMINAL_CELL_SESSION_NAME`; rename the newest
+live session with the rename app, or pass an explicit session path as the
+second argument. Override Pi with
 `TERMINAL_CELL_PI_BIN`, `TERMINAL_CELL_PI_MODEL`, or
 `TERMINAL_CELL_PI_WORKSPACE`.
+
+This spike does not have a Sema database. Session listing and naming are local
+runtime-directory metadata (`session.name`, `session.env`, pid files, and
+`cell.sock`). The production form belongs in a `persona-terminal` supervisor
+daemon with Sema-owned session state.
 
 On Niri, prevent the demo window from stealing focus with a targeted rule:
 

@@ -60,6 +60,17 @@ on the raw byte stream and does not parse terminal escape sequences.
 The daemon owns the child process group, PTY, socket, and session lifecycle.
 Command-line tools and GUI frontends are clients.
 
+This spike has no Sema database. A running session is discoverable through its
+runtime directory under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
+That directory holds `cell.sock`, pid files, `session.env`, `session.name`, and
+diagnostic logs. The list and rename tools inspect or update those files; they
+are a local convenience registry, not durable system truth.
+
+The production shape belongs in a higher-level `persona-terminal` supervisor:
+one well-known daemon socket, a Sema-owned session registry, named terminal
+cells, and per-cell attach/control handles. The per-cell daemon remains the
+low-level PTY owner, not the global registry.
+
 The live byte pump owns the latency-sensitive path:
 
 ```text
