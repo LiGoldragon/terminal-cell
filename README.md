@@ -11,6 +11,10 @@ slow, dropped, and stalled keyboard interaction. The current view sends one
 attach request, pumps raw bytes over one Unix stream, and forwards terminal
 resize events to the daemon; transcript and actor logic observe around that
 path instead of rendering the human session through transcript subscriptions.
+The daemon also accepts `signal-persona-terminal` control frames for prompt
+patterns, input gate leases, write injection, capture/resize, and worker
+lifecycle subscription. Those frames are control plane only; attached viewer
+bytes remain raw.
 
 Do not treat automated Ghostty/Pi witnesses as final proof of a usable human
 attach primitive. They are diagnostics for launch, transcript, injection,
@@ -25,8 +29,14 @@ nix run .#production-witnesses
 nix run .#session-witnesses
 nix run .#agent-terminal-witness
 nix run .#daemon-witness
+nix run .#signal-control-plane-witness
+nix run .#signal-worker-lifecycle-witness
+nix run .#raw-data-plane-witness
 nix run .#ghostty-agent-witness
 ```
+
+The Signal and raw-data-plane witnesses allocate a host PTY, so they live as
+Nix apps rather than pure Nix builder checks.
 
 Live coding-agent witness:
 

@@ -459,14 +459,16 @@ impl TerminalInputGate {
         }
     }
 
-    fn close_human_input(&mut self) -> TerminalInputGateLease {
+    fn close_human_input(&mut self) -> Result<TerminalInputGateLease, TerminalCellError> {
         match self.state {
-            TerminalInputGateState::Closed(lease) => lease,
+            TerminalInputGateState::Closed(lease) => {
+                Err(TerminalCellError::InputGateAlreadyClosed(lease))
+            }
             TerminalInputGateState::Open => {
                 let lease = TerminalInputGateLease::new(self.next_sequence);
                 self.next_sequence = self.next_sequence.next();
                 self.state = TerminalInputGateState::Closed(lease);
-                lease
+                Ok(lease)
             }
         }
     }
@@ -549,7 +551,7 @@ impl TerminalInputWriter {
                 .write_input(self.writer.as_mut(), input)
                 .map_err(|error| TerminalWorkerStop::InputWriteFailed(error.to_string())),
             TerminalInputCommand::CloseHumanInput(reply) => {
-                let _ = reply.send(Ok(self.input_gate.close_human_input()));
+                let _ = reply.send(self.input_gate.close_human_input());
                 Ok(())
             }
             TerminalInputCommand::OpenHumanInput(lease, reply) => {
@@ -1012,6 +1014,32 @@ pub struct WaitForTerminalExit;
 pub struct TerminalWorkerObservationRequest;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TerminalWorkerLifecycleSubscriptionRequest;
+
+#[derive(Debug)]
+pub struct TerminalWorkerLifecycleSubscription {
+    replay: Vec<TerminalWorkerLifecycle>,
+    live: broadcast::Receiver<TerminalWorkerLifecycle>,
+}
+
+impl TerminalWorkerLifecycleSubscription {
+    fn new(
+        replay: Vec<TerminalWorkerLifecycle>,
+        live: broadcast::Receiver<TerminalWorkerLifecycle>,
+    ) -> Self {
+        Self { replay, live }
+    }
+
+    pub fn replay(&self) -> &[TerminalWorkerLifecycle] {
+        self.replay.as_slice()
+    }
+
+    pub fn blocking_next_live_event(&mut self) -> Option<TerminalWorkerLifecycle> {
+        self.live.blocking_recv().ok()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WaitForTerminalWorkerStop {
     worker: TerminalWorkerKind,
 }
@@ -1109,6 +1137,7 @@ pub struct TerminalCell {
     transcript: TerminalTranscript,
     workers: TerminalWorkerObservation,
     subscribers: broadcast::Sender<TranscriptDelta>,
+    worker_subscribers: broadcast::Sender<TerminalWorkerLifecycle>,
     waiters: Vec<TranscriptWaiter>,
     exit_waiters: Vec<TerminalExitWaiter>,
     worker_waiters: Vec<TerminalWorkerWaiter>,
@@ -1281,12 +1310,14 @@ impl Actor for TerminalCell {
             .expect("terminal exit thread starts");
 
         let (subscribers, _) = broadcast::channel(1024);
+        let (worker_subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             master: pair.master,
             child_killer,
             transcript: TerminalTranscript::new(),
             workers: TerminalWorkerObservation::new(),
             subscribers,
+            worker_subscribers,
             waiters: Vec::new(),
             exit_waiters: Vec::new(),
             worker_waiters: Vec::new(),
@@ -1334,7 +1365,8 @@ impl Message<TerminalWorkerLifecycle> for TerminalCell {
         if let TerminalWorkerLifecycle::Stopped { worker, reason } = &message {
             self.notify_worker_waiters(*worker, reason);
         }
-        self.workers.record(message);
+        self.workers.record(message.clone());
+        let _ = self.worker_subscribers.send(message);
     }
 }
 
@@ -1386,6 +1418,21 @@ impl Message<TerminalWorkerObservationRequest> for TerminalCell {
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
         Ok(self.workers.clone())
+    }
+}
+
+impl Message<TerminalWorkerLifecycleSubscriptionRequest> for TerminalCell {
+    type Reply = Result<TerminalWorkerLifecycleSubscription, Infallible>;
+
+    async fn handle(
+        &mut self,
+        _message: TerminalWorkerLifecycleSubscriptionRequest,
+        _context: &mut Context<Self, Self::Reply>,
+    ) -> Self::Reply {
+        Ok(TerminalWorkerLifecycleSubscription::new(
+            self.workers.events().to_vec(),
+            self.worker_subscribers.subscribe(),
+        ))
     }
 }
 

@@ -1,5 +1,13 @@
 use std::io::{self, Read, Write};
 
+use signal_core::{
+    FrameBody as SignalFrameBody, Reply as SignalReply, Request as SignalRequest, SemaVerb,
+};
+use signal_persona_terminal::{
+    Frame as SignalTerminalFrame, TerminalEvent as SignalTerminalEvent,
+    TerminalRequest as SignalTerminalRequest,
+};
+
 use crate::{
     InputSource, TerminalInput, TerminalInputGateLease, TerminalInputGateRelease,
     TerminalInputGateSequence, TerminalSize, WaitForTranscriptText,
@@ -36,6 +44,31 @@ pub enum SocketRequest {
     Wait(WaitForTranscriptText),
     WaitExit,
     WorkerObservation,
+    Signal(SignalSocketRequest),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignalSocketRequest {
+    verb: SemaVerb,
+    payload: SignalTerminalRequest,
+}
+
+impl SignalSocketRequest {
+    fn new(verb: SemaVerb, payload: SignalTerminalRequest) -> Self {
+        Self { verb, payload }
+    }
+
+    pub const fn verb(&self) -> SemaVerb {
+        self.verb
+    }
+
+    pub fn payload(&self) -> &SignalTerminalRequest {
+        &self.payload
+    }
+
+    pub fn into_payload(self) -> SignalTerminalRequest {
+        self.payload
+    }
 }
 
 pub struct SocketRequestReader<Reader> {
@@ -89,9 +122,46 @@ where
             }
             WAIT_EXIT_REQUEST => Ok(SocketRequest::WaitExit),
             WORKER_OBSERVATION_REQUEST => Ok(SocketRequest::WorkerObservation),
+            other => self.read_signal_request(other),
+        }
+    }
+
+    fn read_signal_request(&mut self, first_length_byte: u8) -> io::Result<SocketRequest> {
+        let mut length_tail = [0_u8; 3];
+        self.reader.read_exact(&mut length_tail)?;
+        let length = u32::from_be_bytes([
+            first_length_byte,
+            length_tail[0],
+            length_tail[1],
+            length_tail[2],
+        ]) as u64;
+        if length > MAXIMUM_FRAME_LENGTH {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("signal frame length {length} exceeds maximum"),
+            ));
+        }
+
+        let mut bytes = Vec::with_capacity(4 + length as usize);
+        bytes.push(first_length_byte);
+        bytes.extend_from_slice(&length_tail);
+        let mut payload = vec![0_u8; length as usize];
+        self.reader.read_exact(&mut payload)?;
+        bytes.extend_from_slice(&payload);
+
+        let frame = SignalTerminalFrame::decode_length_prefixed(&bytes).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("signal frame decode failed: {error}"),
+            )
+        })?;
+        match frame.into_body() {
+            SignalFrameBody::Request(SignalRequest::Operation { verb, payload }) => Ok(
+                SocketRequest::Signal(SignalSocketRequest::new(verb, payload)),
+            ),
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("unknown socket request tag: {other}"),
+                format!("expected signal request operation, got {other:?}"),
             )),
         }
     }
@@ -198,6 +268,24 @@ where
         self.writer.flush()
     }
 
+    pub fn write_signal_request(
+        &mut self,
+        verb: SemaVerb,
+        request: SignalTerminalRequest,
+    ) -> io::Result<()> {
+        let frame = SignalTerminalFrame::new(SignalFrameBody::Request(SignalRequest::operation(
+            verb, request,
+        )));
+        let bytes = frame.encode_length_prefixed().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("signal frame encode failed: {error}"),
+            )
+        })?;
+        self.writer.write_all(&bytes)?;
+        self.writer.flush()
+    }
+
     fn write_frame(&mut self, bytes: &[u8]) -> io::Result<()> {
         self.write_u64(bytes.len() as u64)?;
         self.writer.write_all(bytes)
@@ -274,6 +362,41 @@ where
 
     pub fn read_exit_status(&mut self) -> io::Result<String> {
         self.read_string()
+    }
+
+    pub fn read_signal_event(&mut self) -> io::Result<SignalTerminalEvent> {
+        let frame = self.read_signal_frame()?;
+        match frame.into_body() {
+            SignalFrameBody::Reply(SignalReply::Operation(event)) => Ok(event),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected signal reply operation, got {other:?}"),
+            )),
+        }
+    }
+
+    fn read_signal_frame(&mut self) -> io::Result<SignalTerminalFrame> {
+        let mut length_bytes = [0_u8; 4];
+        self.reader.read_exact(&mut length_bytes)?;
+        let length = u32::from_be_bytes(length_bytes) as u64;
+        if length > MAXIMUM_FRAME_LENGTH {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("signal reply length {length} exceeds maximum"),
+            ));
+        }
+
+        let mut bytes = Vec::with_capacity(4 + length as usize);
+        bytes.extend_from_slice(&length_bytes);
+        let mut payload = vec![0_u8; length as usize];
+        self.reader.read_exact(&mut payload)?;
+        bytes.extend_from_slice(&payload);
+        SignalTerminalFrame::decode_length_prefixed(&bytes).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("signal frame decode failed: {error}"),
+            )
+        })
     }
 
     fn read_expected_tag(&mut self, expected: u8) -> io::Result<()> {
@@ -371,6 +494,18 @@ where
 
     pub fn write_exit_status(&mut self, status: &str) -> io::Result<()> {
         self.write_frame(status.as_bytes())?;
+        self.writer.flush()
+    }
+
+    pub fn write_signal_event(&mut self, event: SignalTerminalEvent) -> io::Result<()> {
+        let frame = SignalTerminalFrame::new(SignalFrameBody::Reply(SignalReply::operation(event)));
+        let bytes = frame.encode_length_prefixed().map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("signal frame encode failed: {error}"),
+            )
+        })?;
+        self.writer.write_all(&bytes)?;
         self.writer.flush()
     }
 

@@ -16,6 +16,8 @@ pub enum TerminalCellError {
     ViewerAlreadyAttached,
     #[error("terminal viewer lease is stale")]
     StaleViewerLease,
+    #[error("terminal input gate is already closed")]
+    InputGateAlreadyClosed(crate::TerminalInputGateLease),
     #[error("terminal input gate lease is stale")]
     StaleInputGateLease,
 }

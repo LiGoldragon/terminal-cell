@@ -32,6 +32,11 @@
         commonArgs = {
           inherit src;
           strictDeps = true;
+          nativeBuildInputs = [
+            pkgs.bash
+            pkgs.coreutils
+          ];
+          TERMINAL_CELL_TEST_SHELL = "${pkgs.bash}/bin/bash";
         };
         cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       in
@@ -92,6 +97,36 @@
             runtimeInputs = [ toolchain ];
             text = ''
               cargo test --test daemon_witness -- --nocapture
+            '';
+          };
+        };
+
+        apps.signal-control-plane-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-signal-control-plane-witness";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --test daemon_witness signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes -- --exact --nocapture
+            '';
+          };
+        };
+
+        apps.signal-worker-lifecycle-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-signal-worker-lifecycle-witness";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --test daemon_witness signal_worker_lifecycle_subscription_streams_snapshot_then_deltas -- --exact --nocapture
+            '';
+          };
+        };
+
+        apps.raw-data-plane-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-raw-data-plane-witness";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --test daemon_witness attach_stream_is_raw_bidirectional_byte_path -- --exact --nocapture
             '';
           };
         };

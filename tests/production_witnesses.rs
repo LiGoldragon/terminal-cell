@@ -24,7 +24,8 @@ impl DaemonFixture {
     }
 
     fn spawn_shell(name: &str, script: &str) -> Self {
-        Self::spawn_command(name, "sh", &["-lc", script])
+        let shell = env::var("TERMINAL_CELL_TEST_SHELL").unwrap_or_else(|_| "bash".to_string());
+        Self::spawn_command(name, &shell, &["-lc", script])
     }
 
     fn spawn_command(name: &str, program: &str, arguments: &[&str]) -> Self {

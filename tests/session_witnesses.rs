@@ -1,3 +1,5 @@
+use std::env;
+
 use kameo::actor::ActorRef;
 
 use terminal_cell::{
@@ -14,9 +16,10 @@ struct TerminalFixture {
 
 impl TerminalFixture {
     fn shell(arguments: &str) -> Self {
+        let shell = env::var("TERMINAL_CELL_TEST_SHELL").unwrap_or_else(|_| "bash".to_string());
         Self {
             launch: TerminalLaunch::new(
-                TerminalCommand::new("sh", vec!["-lc".to_string(), arguments.to_string()]),
+                TerminalCommand::new(shell, vec!["-lc".to_string(), arguments.to_string()]),
                 TerminalSize::new(24, 80),
             ),
         }

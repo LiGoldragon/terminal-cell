@@ -2,6 +2,11 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
+use signal_core::SemaVerb;
+use signal_persona_terminal::{
+    TerminalEvent as SignalTerminalEvent, TerminalRequest as SignalTerminalRequest,
+};
+
 use crate::{
     SocketReplyReader, SocketRequestWriter, TerminalInputGateLease, TerminalInputGateRelease,
     TerminalSize,
@@ -90,6 +95,16 @@ impl TerminalCellSocketClient {
                 format!("worker observation was not utf-8: {error}"),
             )
         })
+    }
+
+    pub fn send_signal_request(
+        &self,
+        verb: SemaVerb,
+        request: SignalTerminalRequest,
+    ) -> io::Result<SignalTerminalEvent> {
+        let mut stream = UnixStream::connect(&self.socket)?;
+        SocketRequestWriter::new(&mut stream).write_signal_request(verb, request)?;
+        SocketReplyReader::new(&mut stream).read_signal_event()
     }
 
     pub fn subscribe_from_beginning(&self) -> io::Result<UnixStream> {
