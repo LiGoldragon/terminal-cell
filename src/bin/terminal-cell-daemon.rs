@@ -251,10 +251,17 @@ impl TerminalCellConnection {
             self.stream.flush()?;
         }
 
-        self.output_port
+        let lease = self
+            .output_port
             .attach(self.stream.try_clone()?)
             .map_err(Self::terminal_error)?;
 
+        let result = self.pump_viewer_input();
+        let _ = self.output_port.detach(lease);
+        result
+    }
+
+    fn pump_viewer_input(&mut self) -> io::Result<()> {
         let mut buffer = [0_u8; 8192];
         loop {
             let count = self.stream.read(&mut buffer)?;

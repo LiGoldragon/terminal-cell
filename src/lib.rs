@@ -13,8 +13,8 @@ pub use session::{
     InputAcceptance, InputSource, ScreenProjectionRequest, TerminalCell, TerminalCellSession,
     TerminalCellStart, TerminalCommand, TerminalExit, TerminalExitRequest, TerminalInput,
     TerminalInputGateLease, TerminalInputGateRelease, TerminalInputGateSequence, TerminalInputPort,
-    TerminalLaunch, TerminalOutputPort, TerminalSequence, TerminalSize, TranscriptDelta,
-    TranscriptSnapshot, TranscriptSnapshotRequest, TranscriptSubscription,
+    TerminalLaunch, TerminalOutputPort, TerminalSequence, TerminalSize, TerminalViewerLease,
+    TranscriptDelta, TranscriptSnapshot, TranscriptSnapshotRequest, TranscriptSubscription,
     TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
 };
 pub use snapshot::ScreenProjection;

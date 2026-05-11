@@ -4,7 +4,8 @@ Prototype workspace for durable terminal session ownership: daemon-owned PTY
 lifecycle, transcript capture, raw programmatic input, and attach experiments
 without terminal multiplexer UI.
 
-Status: this is an attach spike for live human TUI use. The first
+Status: this is a production-candidate low-level terminal cell for live human
+TUI use. The first
 `terminal-cell-view` relay design was rejected after manual Pi testing showed
 slow, dropped, and stalled keyboard interaction. The current view sends one
 attach request, pumps raw bytes over one Unix stream, and forwards terminal
@@ -20,7 +21,7 @@ Run the witness suite:
 
 ```sh
 nix flake check
-nix run .#source-witness
+nix run .#production-witnesses
 nix run .#session-witnesses
 nix run .#agent-terminal-witness
 nix run .#daemon-witness
@@ -72,10 +73,10 @@ second argument. Override Pi with
 `TERMINAL_CELL_PI_BIN`, `TERMINAL_CELL_PI_MODEL`, or
 `TERMINAL_CELL_PI_WORKSPACE`.
 
-This spike does not have a Sema database. Session listing and naming are local
-runtime-directory metadata (`session.name`, `session.env`, pid files, and
-`cell.sock`). The production form belongs in a `persona-terminal` supervisor
-daemon with Sema-owned session state.
+This component does not have a Sema database. Session listing and naming are
+local runtime-directory metadata (`session.name`, `session.env`, pid files, and
+`cell.sock`). The production registry belongs in a `persona-terminal`
+supervisor daemon with Sema-owned session state.
 
 On Niri, prevent the demo window from stealing focus with a targeted rule:
 

@@ -21,8 +21,9 @@ The current implementation proves several useful pieces:
 - child-exit observation;
 - resize plumbing;
 - an attach stream that carries raw viewer bytes in both directions;
-- a source witness that the live attach path bypasses actor mailbox input,
-  transcript rendering, screen projection, and wait conditions.
+- durable detach and reattach;
+- single active attached viewer authority;
+- behavioral witnesses for slow transcript subscribers and reattach.
 
 The previous live-viewer path was rejected after manual Pi testing in Ghostty
 showed slow, dropped, and eventually stalled keyboard interaction:
@@ -62,8 +63,8 @@ on the raw byte stream and does not parse terminal escape sequences.
 The daemon owns the child process group, PTY, socket, and session lifecycle.
 Command-line tools and GUI frontends are clients.
 
-This spike has no Sema database. A running session is discoverable through its
-runtime directory under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
+This component has no Sema database. A running session is discoverable through
+its runtime directory under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
 That directory holds `cell.sock`, pid files, `session.env`, `session.name`, and
 diagnostic logs. The list and rename tools inspect or update those files; they
 are a local convenience registry, not durable system truth.
@@ -116,9 +117,15 @@ are either buffered in order or rejected with an explicit gate state, while the
 injected bytes are written contiguously to the child PTY. The gate must sit at
 the PTY writer, not in the viewer, so every frontend obeys the same rule.
 
+One terminal cell has at most one active attached viewer. The active viewer is
+the only human byte source for the cell. A second attach request while a viewer
+is active is closed rather than admitted as another writer. When the active
+viewer disconnects, the daemon keeps the child PTY alive and a later viewer can
+reattach, receive transcript replay, and continue sending input.
+
 ## 2 - Current Spike Components
 
-These are the checked-in components of the attach spike:
+These are the checked-in components:
 
 - `TerminalCell` - Kameo actor that owns lifecycle, transcript, resize
   authority, diagnostic subscribers, exit state, and waiters.
@@ -127,7 +134,9 @@ These are the checked-in components of the attach spike:
 - `TerminalOutputPort` - typed ingress to the PTY-output fanout used by the
   daemon attach path.
 - `TerminalOutputFanout` - non-actor thread that writes PTY output to attached
-  viewers before sending the same bytes to the transcript actor.
+  viewer before sending the same bytes to the transcript actor.
+- `TerminalViewerLease` - active-viewer authority returned by the output fanout
+  and released when the attach stream ends.
 - `TranscriptSubscription` - replay plus live delta receiver for diagnostics.
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
@@ -159,6 +168,10 @@ These are the checked-in components of the attach spike:
   capture.
 - A late viewer may receive transcript replay before live attach, but replay is
   not the live display path.
+- Closing a viewer detaches only that viewer; it does not end the daemon-owned
+  child PTY.
+- A terminal cell admits one active attached viewer at a time.
+- A rejected second viewer cannot send input to the child PTY.
 - Human keyboard bytes and Persona programmatic input write to the same child
   PTY input path.
 - Live human keyboard bytes enter `TerminalInputPort` directly from the attach
@@ -171,6 +184,9 @@ These are the checked-in components of the attach spike:
   framing.
 - The live attach path does not wait on actor handlers, transcript append,
   screen projection, waiters, or Persona decisions.
+- A slow transcript subscriber does not block the attached viewer's output.
+- High-volume child output still reaches the attached viewer while transcript
+  subscribers are slow.
 - Attached viewers push terminal resize events to the daemon; a PTY must not
   keep drawing at the size from initial attach after the GUI window changes.
 - Terminal input is raw bytes; slash commands are harness input, not terminal
@@ -196,11 +212,10 @@ Current useful witnesses:
 - `input_gate_holds_human_bytes_during_programmatic_injection`
 - `daemon_exposes_terminal_exit_status`
 - `daemon_resizes_the_owned_pty`
-- `source_witness::live_attach_input_bypasses_actor_mailbox_and_terminal_semantics`
-- `source_witness::live_attach_view_is_a_raw_stdin_stdout_pump`
-- `source_witness::live_output_reaches_viewers_before_transcript_actor`
-- `source_witness::terminal_input_writer_owns_the_pty_input_gate_without_actor_message_input`
-- `nix run .#source-witness`
+- `detached_viewer_leaves_daemon_alive_and_late_viewer_receives_replay`
+- `second_attached_viewer_is_rejected_while_first_viewer_is_active`
+- `slow_transcript_subscriber_does_not_block_attached_viewer_output`
+- `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`
 - `nix run .#live-pi-agent-witness`
 - `nix run .#ghostty-agent-witness`
@@ -219,7 +234,6 @@ Required next witnesses:
 - A gated Persona injection is delivered contiguously while simultaneous human
   input is buffered or rejected according to the gate state.
 - High-volume output does not make keyboard input lag.
-- A deliberately slow transcript sink does not affect the attached viewer.
 
 ## Code Map
 

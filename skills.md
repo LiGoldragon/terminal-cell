@@ -12,6 +12,9 @@ Rules for work here:
   into the dedicated `TerminalInputWriter` that owns the PTY input gate. Do not
   reintroduce a `Message<TerminalInput>` actor-mailbox path for attached
   keyboard bytes.
+- Keep one active attached viewer per terminal cell until a production
+  multi-viewer policy exists. Extra viewers must not become extra human input
+  writers.
 - Treat PTY output bytes as transcript truth, but record transcript as a
   side-channel observer of the live path.
 - Treat screen snapshots as derived projections, not as live display state.
