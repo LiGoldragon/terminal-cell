@@ -98,8 +98,16 @@ impl TerminalViewer {
             .name("terminal-cell-view-output".to_string())
             .spawn(move || -> io::Result<()> {
                 let mut stdout = io::stdout();
-                io::copy(&mut output_stream, &mut stdout)?;
-                stdout.flush()
+                let mut buffer = [0_u8; 8192];
+                loop {
+                    let count = output_stream.read(&mut buffer)?;
+                    if count == 0 {
+                        break;
+                    }
+                    stdout.write_all(&buffer[..count])?;
+                    stdout.flush()?;
+                }
+                Ok(())
             })?;
 
         let _raw_mode = TerminalRawMode::enter()?;
