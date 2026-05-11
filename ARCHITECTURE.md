@@ -89,7 +89,7 @@ The clean production split is:
 persona-terminal        registry, names, Sema state, lifecycle policy
 signal-persona-terminal typed terminal requests and events
 terminal-cell           one child process group, one PTY, raw attach/control
-viewer adapters         Ghostty/WezTerm/Niri-specific visible windows
+viewer adapters         disposable visible windows around the terminal owner
 persona-system          OS facts such as focus and window state
 persona-harness         harness-specific prompts, usage probes, quota parsing
 ```
