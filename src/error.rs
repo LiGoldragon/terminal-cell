@@ -14,6 +14,8 @@ pub enum TerminalCellError {
     OutputClosed,
     #[error("terminal cell already has an attached viewer")]
     ViewerAlreadyAttached,
+    #[error("terminal viewer lease is stale")]
+    StaleViewerLease,
     #[error("terminal input gate lease is stale")]
     StaleInputGateLease,
 }

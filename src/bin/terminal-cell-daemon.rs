@@ -12,9 +12,9 @@ use tokio::runtime::Handle;
 
 use terminal_cell::{
     InputSource, SocketReplyWriter, SocketRequest, SocketRequestReader, TerminalCell,
-    TerminalCommand, TerminalInput, TerminalInputPort, TerminalLaunch, TerminalOutputPort,
-    TerminalSize, TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
-    WaitForTranscriptText,
+    TerminalCellError, TerminalCommand, TerminalInput, TerminalInputPort, TerminalLaunch,
+    TerminalOutputPort, TerminalSize, TerminalViewerLease, TranscriptSnapshotRequest,
+    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
 };
 
 type TerminalDaemonResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
@@ -245,15 +245,34 @@ impl TerminalCellConnection {
     }
 
     fn attach_viewer(&mut self) -> io::Result<()> {
+        let lease = match self.output_port.reserve_viewer() {
+            Ok(lease) => lease,
+            Err(TerminalCellError::ViewerAlreadyAttached) => {
+                SocketReplyWriter::new(&mut self.stream)
+                    .write_attach_rejected("terminal cell already has an attached viewer")?;
+                return Ok(());
+            }
+            Err(error) => return Err(Self::terminal_error(error)),
+        };
+
+        let result = self.complete_viewer_attach(lease);
+        if result.is_err() {
+            let _ = self.output_port.detach(lease);
+        }
+        result
+    }
+
+    fn complete_viewer_attach(&mut self, lease: TerminalViewerLease) -> io::Result<()> {
+        SocketReplyWriter::new(&mut self.stream).write_attach_accepted()?;
+
         let snapshot = self.snapshot()?;
         if !snapshot.bytes().is_empty() {
             self.stream.write_all(snapshot.bytes())?;
             self.stream.flush()?;
         }
 
-        let lease = self
-            .output_port
-            .attach(self.stream.try_clone()?)
+        self.output_port
+            .activate_viewer(lease, self.stream.try_clone()?)
             .map_err(Self::terminal_error)?;
 
         let result = self.pump_viewer_input();

@@ -21,9 +21,13 @@ The current implementation proves several useful pieces:
 - child-exit observation;
 - resize plumbing;
 - an attach stream that carries raw viewer bytes in both directions;
+- explicit attach accept/reject before raw replay;
 - durable detach and reattach;
 - single active attached viewer authority;
-- behavioral witnesses for slow transcript subscribers and reattach.
+- headless daemon resize control;
+- live-session selection that skips stale runtime directories;
+- behavioral witnesses for slow transcript subscribers, reattach, and stale
+  session rejection.
 
 The previous live-viewer path was rejected after manual Pi testing in Ghostty
 showed slow, dropped, and eventually stalled keyboard interaction:
@@ -49,9 +53,10 @@ Ghostty tty <-> attach pump <-> daemon byte pump <-> child PTY
 
 The live attach path moves raw content bytes between the viewer terminal and
 the child PTY. Minimal framing for content, attach, detach, resize, exit, and
-lifecycle is allowed. Terminal escape interpretation, transcript replay,
-screen projection, actor mailbox delivery, and wait conditions stay off the
-hot path.
+lifecycle is allowed. Attach is framed only long enough to return explicit
+accept/reject; raw transcript replay starts after acceptance. Terminal escape
+interpretation, transcript replay, screen projection, actor mailbox delivery,
+and wait conditions stay off the hot path.
 
 Abduco is the concrete reference. Its client and server move `MSG_CONTENT`
 packets between stdin/stdout, a Unix socket, and the child PTY; the other
@@ -119,11 +124,12 @@ the PTY writer, not in the viewer, so every frontend obeys the same rule.
 
 One terminal cell has at most one active attached viewer. The active viewer is
 the only human byte source for the cell. A second attach request while a viewer
-is active is closed rather than admitted as another writer. When the active
-viewer disconnects, the daemon keeps the child PTY alive and a later viewer can
-reattach, receive transcript replay, and continue sending input.
+is active receives an explicit rejection before replay or live bytes can cross.
+When the active viewer disconnects, the daemon keeps the child PTY alive and a
+later viewer can reattach, receive transcript replay, and continue sending
+input.
 
-## 2 - Current Spike Components
+## 2 - Current Components
 
 These are the checked-in components:
 
@@ -154,6 +160,10 @@ These are the checked-in components:
   socket requests.
 - `terminal-cell-send` / `capture` / `wait` / `exit` - thin command-line
   clients.
+- `terminal-cell-resize` - thin resize client that can resize the child PTY
+  without an attached viewer.
+- `terminal-cell-session-select` - runtime-directory selector used by reattach
+  tooling to choose only live daemon-backed sessions.
 - `terminal-cell-view` - interactive attach client. It sends one attach request,
   pumps stdin/stdout over the attached Unix stream, and forwards terminal
   `SIGWINCH` resize events to the daemon.
@@ -172,6 +182,8 @@ These are the checked-in components:
   child PTY.
 - A terminal cell admits one active attached viewer at a time.
 - A rejected second viewer cannot send input to the child PTY.
+- A rejected second viewer receives an explicit attach rejection before replay
+  or raw output bytes.
 - Human keyboard bytes and Persona programmatic input write to the same child
   PTY input path.
 - Live human keyboard bytes enter `TerminalInputPort` directly from the attach
@@ -189,6 +201,10 @@ These are the checked-in components:
   subscribers are slow.
 - Attached viewers push terminal resize events to the daemon; a PTY must not
   keep drawing at the size from initial attach after the GUI window changes.
+- Resize is also a daemon control request; an attached viewer is not required
+  to resize the child PTY.
+- Reattach tooling selects only live sessions: a runtime directory with a socket
+  but no live daemon process is stale and must be skipped.
 - Terminal input is raw bytes; slash commands are harness input, not terminal
   owner semantics.
 - Blocking PTY reads and writes are isolated from actor handlers.
@@ -214,7 +230,9 @@ Current useful witnesses:
 - `daemon_resizes_the_owned_pty`
 - `detached_viewer_leaves_daemon_alive_and_late_viewer_receives_replay`
 - `second_attached_viewer_is_rejected_while_first_viewer_is_active`
+- `headless_resize_cli_resizes_without_attached_viewer`
 - `slow_transcript_subscriber_does_not_block_attached_viewer_output`
+- `session_selector_skips_newer_stale_sessions`
 - `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`
 - `nix run .#live-pi-agent-witness`

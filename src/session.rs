@@ -496,14 +496,37 @@ impl TerminalOutputPort {
             .map_err(|_| TerminalCellError::OutputClosed)
     }
 
-    pub fn attach(&self, stream: UnixStream) -> Result<TerminalViewerLease, TerminalCellError> {
+    pub fn reserve_viewer(&self) -> Result<TerminalViewerLease, TerminalCellError> {
         let (sender, receiver) = mpsc::channel();
         self.sender
-            .send(TerminalOutputCommand::Attach(stream, sender))
+            .send(TerminalOutputCommand::ReserveViewer(sender))
             .map_err(|_| TerminalCellError::OutputClosed)?;
         receiver
             .recv()
             .map_err(|_| TerminalCellError::OutputClosed)?
+    }
+
+    pub fn activate_viewer(
+        &self,
+        lease: TerminalViewerLease,
+        stream: UnixStream,
+    ) -> Result<(), TerminalCellError> {
+        let (sender, receiver) = mpsc::channel();
+        self.sender
+            .send(TerminalOutputCommand::ActivateViewer(lease, stream, sender))
+            .map_err(|_| TerminalCellError::OutputClosed)?;
+        receiver
+            .recv()
+            .map_err(|_| TerminalCellError::OutputClosed)?
+    }
+
+    pub fn attach(&self, stream: UnixStream) -> Result<TerminalViewerLease, TerminalCellError> {
+        let lease = self.reserve_viewer()?;
+        if let Err(error) = self.activate_viewer(lease, stream) {
+            let _ = self.detach(lease);
+            return Err(error);
+        }
+        Ok(lease)
     }
 
     pub fn detach(&self, lease: TerminalViewerLease) -> Result<(), TerminalCellError> {
@@ -515,9 +538,11 @@ impl TerminalOutputPort {
 
 enum TerminalOutputCommand {
     Bytes(Vec<u8>),
-    Attach(
+    ReserveViewer(Sender<Result<TerminalViewerLease, TerminalCellError>>),
+    ActivateViewer(
+        TerminalViewerLease,
         UnixStream,
-        Sender<Result<TerminalViewerLease, TerminalCellError>>,
+        Sender<Result<(), TerminalCellError>>,
     ),
     Detach(TerminalViewerLease),
 }
@@ -566,9 +591,37 @@ impl TerminalAttachedViewer {
     }
 }
 
+struct TerminalReservedViewer {
+    lease: TerminalViewerLease,
+    backlog: VecDeque<Vec<u8>>,
+}
+
+impl TerminalReservedViewer {
+    fn new(lease: TerminalViewerLease) -> Self {
+        Self {
+            lease,
+            backlog: VecDeque::new(),
+        }
+    }
+
+    fn push_bytes(&mut self, bytes: Vec<u8>) {
+        self.backlog.push_back(bytes);
+    }
+
+    fn pop_bytes(&mut self) -> Option<Vec<u8>> {
+        self.backlog.pop_front()
+    }
+}
+
+enum TerminalViewerSlot {
+    Empty,
+    Reserved(TerminalReservedViewer),
+    Active(TerminalAttachedViewer),
+}
+
 struct TerminalOutputFanout {
     actor: ActorRef<TerminalCell>,
-    viewer: Option<TerminalAttachedViewer>,
+    viewer: TerminalViewerSlot,
     next_viewer_sequence: TerminalViewerSequence,
 }
 
@@ -576,7 +629,7 @@ impl TerminalOutputFanout {
     fn new(actor: ActorRef<TerminalCell>) -> Self {
         Self {
             actor,
-            viewer: None,
+            viewer: TerminalViewerSlot::Empty,
             next_viewer_sequence: TerminalViewerSequence::first(),
         }
     }
@@ -585,44 +638,117 @@ impl TerminalOutputFanout {
         while let Ok(command) = receiver.recv() {
             match command {
                 TerminalOutputCommand::Bytes(bytes) => self.write_bytes(bytes),
-                TerminalOutputCommand::Attach(stream, reply) => self.attach(stream, reply),
+                TerminalOutputCommand::ReserveViewer(reply) => self.reserve(reply),
+                TerminalOutputCommand::ActivateViewer(lease, stream, reply) => {
+                    self.activate(lease, stream, reply);
+                }
                 TerminalOutputCommand::Detach(lease) => self.detach(lease),
             }
         }
     }
 
-    fn attach(
-        &mut self,
-        stream: UnixStream,
-        reply: Sender<Result<TerminalViewerLease, TerminalCellError>>,
-    ) {
-        if self.viewer.is_some() {
+    fn reserve(&mut self, reply: Sender<Result<TerminalViewerLease, TerminalCellError>>) {
+        if !matches!(self.viewer, TerminalViewerSlot::Empty) {
             let _ = reply.send(Err(TerminalCellError::ViewerAlreadyAttached));
             return;
         }
 
         let lease = TerminalViewerLease::new(self.next_viewer_sequence);
         self.next_viewer_sequence = self.next_viewer_sequence.next();
-        self.viewer = Some(TerminalAttachedViewer::new(lease, stream));
+        self.viewer = TerminalViewerSlot::Reserved(TerminalReservedViewer::new(lease));
         let _ = reply.send(Ok(lease));
     }
 
+    fn activate(
+        &mut self,
+        lease: TerminalViewerLease,
+        stream: UnixStream,
+        reply: Sender<Result<(), TerminalCellError>>,
+    ) {
+        let slot = std::mem::replace(&mut self.viewer, TerminalViewerSlot::Empty);
+        match slot {
+            TerminalViewerSlot::Reserved(reserved) if reserved.lease == lease => {
+                match self.activate_reserved_viewer(reserved, stream) {
+                    Ok(viewer) => {
+                        self.viewer = TerminalViewerSlot::Active(viewer);
+                        let _ = reply.send(Ok(()));
+                    }
+                    Err(error) => {
+                        let _ = reply.send(Err(error));
+                    }
+                }
+            }
+            TerminalViewerSlot::Reserved(reserved) => {
+                self.viewer = TerminalViewerSlot::Reserved(reserved);
+                let _ = reply.send(Err(TerminalCellError::StaleViewerLease));
+            }
+            TerminalViewerSlot::Active(viewer) => {
+                self.viewer = TerminalViewerSlot::Active(viewer);
+                let _ = reply.send(Err(TerminalCellError::ViewerAlreadyAttached));
+            }
+            TerminalViewerSlot::Empty => {
+                let _ = reply.send(Err(TerminalCellError::StaleViewerLease));
+            }
+        }
+    }
+
+    fn activate_reserved_viewer(
+        &self,
+        mut reserved: TerminalReservedViewer,
+        stream: UnixStream,
+    ) -> Result<TerminalAttachedViewer, TerminalCellError> {
+        let mut viewer = TerminalAttachedViewer::new(reserved.lease, stream);
+        while let Some(bytes) = reserved.pop_bytes() {
+            if let Err(error) = viewer.write_bytes(&bytes) {
+                self.record_output(bytes);
+                self.record_reserved_output(reserved);
+                return Err(TerminalCellError::pty(error));
+            }
+            self.record_output(bytes);
+        }
+        Ok(viewer)
+    }
+
     fn detach(&mut self, lease: TerminalViewerLease) {
-        if self
-            .viewer
-            .as_ref()
-            .is_some_and(|viewer| viewer.lease() == lease)
-        {
-            self.viewer = None;
+        let slot = std::mem::replace(&mut self.viewer, TerminalViewerSlot::Empty);
+        match slot {
+            TerminalViewerSlot::Reserved(reserved) if reserved.lease == lease => {
+                self.record_reserved_output(reserved);
+            }
+            TerminalViewerSlot::Active(viewer) if viewer.lease() == lease => {}
+            other => {
+                self.viewer = other;
+            }
         }
     }
 
     fn write_bytes(&mut self, bytes: Vec<u8>) {
-        if let Some(viewer) = &mut self.viewer
-            && viewer.write_bytes(&bytes).is_err()
-        {
-            self.viewer = None;
+        let mut clear_viewer = false;
+        match &mut self.viewer {
+            TerminalViewerSlot::Active(viewer) => {
+                if viewer.write_bytes(&bytes).is_err() {
+                    clear_viewer = true;
+                }
+            }
+            TerminalViewerSlot::Reserved(viewer) => {
+                viewer.push_bytes(bytes);
+                return;
+            }
+            TerminalViewerSlot::Empty => {}
         }
+        if clear_viewer {
+            self.viewer = TerminalViewerSlot::Empty;
+        }
+        self.record_output(bytes);
+    }
+
+    fn record_reserved_output(&self, mut reserved: TerminalReservedViewer) {
+        while let Some(bytes) = reserved.pop_bytes() {
+            self.record_output(bytes);
+        }
+    }
+
+    fn record_output(&self, bytes: Vec<u8>) {
         let _ = self.actor.tell(TerminalOutput::new(bytes)).try_send();
     }
 }

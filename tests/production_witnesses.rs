@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::net::UnixStream;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -165,33 +165,6 @@ impl AttachedStream {
                 .collect::<String>()
         );
     }
-
-    fn read_until_closed(&mut self, timeout: Duration) -> String {
-        let deadline = Instant::now() + timeout;
-        let mut output = Vec::new();
-        let mut buffer = [0_u8; 4096];
-
-        while Instant::now() < deadline {
-            match self.stream.read(&mut buffer) {
-                Ok(0) => return String::from_utf8_lossy(&output).into_owned(),
-                Ok(count) => output.extend_from_slice(&buffer[..count]),
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) => {}
-                Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {
-                    return String::from_utf8_lossy(&output).into_owned();
-                }
-                Err(error) => panic!("attached stream read failed: {error}"),
-            }
-        }
-
-        panic!(
-            "attached stream remained open for rejected viewer; saw {} bytes",
-            output.len()
-        );
-    }
 }
 
 #[test]
@@ -223,12 +196,14 @@ fn second_attached_viewer_is_rejected_while_first_viewer_is_active() {
     let mut first = AttachedStream::new(daemon.open_attach_stream());
     first.read_until("agent-ready", Duration::from_secs(2));
 
-    let mut second = AttachedStream::new(daemon.open_attach_stream());
-    second.write_line("second viewer must not reach child");
-    let rejected_output = second.read_until_closed(Duration::from_secs(2));
+    let error = daemon
+        .client()
+        .open_attach_stream()
+        .expect_err("second attached viewer is explicitly rejected");
+    assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
     assert!(
-        rejected_output.contains("agent-ready"),
-        "rejected viewer may receive replay before the daemon closes it"
+        error.to_string().contains("attached viewer"),
+        "rejection explains the active viewer conflict: {error}"
     );
 
     first.write_line("first viewer remains active");
@@ -241,6 +216,30 @@ fn second_attached_viewer_is_rejected_while_first_viewer_is_active() {
         !transcript.contains("agent-response: second viewer must not reach child"),
         "rejected viewer input must not reach the child PTY"
     );
+}
+
+#[test]
+fn headless_resize_cli_resizes_without_attached_viewer() {
+    let daemon = DaemonFixture::spawn_shell(
+        "headless-resize-cli",
+        "stty size; IFS= read -r _; stty size",
+    );
+    daemon.wait_for_text("24 80");
+
+    let output = Command::new(DaemonFixture::binary("terminal-cell-resize"))
+        .arg("--socket")
+        .arg(&daemon.socket)
+        .args(["--rows", "41", "--columns", "113"])
+        .output()
+        .expect("resize cli runs");
+    assert!(
+        output.status.success(),
+        "resize cli exits successfully; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    daemon.send_line("");
+    daemon.wait_for_text("41 113");
 }
 
 #[test]
@@ -272,4 +271,59 @@ fn slow_transcript_subscriber_does_not_block_attached_viewer_output() {
         output.contains("bulk-00000"),
         "viewer saw high-volume child output before the final marker"
     );
+}
+
+#[test]
+fn session_selector_skips_newer_stale_sessions() {
+    let root = env::temp_dir().join(format!(
+        "terminal-cell-session-select-{}",
+        std::process::id()
+    ));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).expect("session selector root created");
+
+    let live_session = root.join("session-live");
+    fs::create_dir_all(&live_session).expect("live session dir created");
+    let _live_socket =
+        UnixListener::bind(live_session.join("cell.sock")).expect("live session socket bound");
+    fs::write(
+        live_session.join("daemon.pid"),
+        std::process::id().to_string(),
+    )
+    .expect("live daemon pid written");
+
+    std::thread::sleep(Duration::from_millis(20));
+
+    let stale_session = root.join("session-stale");
+    fs::create_dir_all(&stale_session).expect("stale session dir created");
+    let _stale_socket =
+        UnixListener::bind(stale_session.join("cell.sock")).expect("stale session socket bound");
+    fs::write(stale_session.join("daemon.pid"), "99999999").expect("stale daemon pid written");
+
+    let output = Command::new(DaemonFixture::binary("terminal-cell-session-select"))
+        .arg("--root")
+        .arg(&root)
+        .output()
+        .expect("session selector runs");
+    assert!(
+        output.status.success(),
+        "session selector exits successfully; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        PathBuf::from(String::from_utf8_lossy(&output.stdout).trim()),
+        live_session
+    );
+
+    let rejected = Command::new(DaemonFixture::binary("terminal-cell-session-select"))
+        .arg("--session")
+        .arg(&stale_session)
+        .output()
+        .expect("session selector validates exact sessions");
+    assert!(
+        !rejected.status.success(),
+        "exact stale session is rejected"
+    );
+
+    let _ = fs::remove_dir_all(&root);
 }

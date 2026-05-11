@@ -59,6 +59,7 @@ nix run .#ghostty-agent-session
 nix run .#list-ghostty-agent-sessions
 nix run .#rename-ghostty-agent-session -- terminal-cell-main
 nix run .#reattach-ghostty-agent-session
+nix run .#terminal-cell-resize -- --socket "$TERMINAL_CELL_SOCKET" --rows 41 --columns 113
 nix run .#close-ghostty-agent-sessions
 ```
 
@@ -66,12 +67,16 @@ The session command starts the real Pi TUI in a daemon-owned terminal cell,
 attaches a Ghostty view, and leaves the daemon, socket, view, and initial
 transcript under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*` until the
 close app is run. Closing the Ghostty window detaches only the view; the
-reattach app opens a new Ghostty view against the newest live session socket.
+reattach app opens a new Ghostty view against the newest live session socket
+and skips stale runtime directories whose daemon process is gone.
 Name a session at launch with `TERMINAL_CELL_SESSION_NAME`; rename the newest
 live session with the rename app, or pass an explicit session path as the
 second argument. Override Pi with
 `TERMINAL_CELL_PI_BIN`, `TERMINAL_CELL_PI_MODEL`, or
 `TERMINAL_CELL_PI_WORKSPACE`.
+
+`terminal-cell-resize` sends a daemon resize control request. It does not
+require an attached Ghostty view.
 
 This component does not have a Sema database. Session listing and naming are
 local runtime-directory metadata (`session.name`, `session.env`, pid files, and

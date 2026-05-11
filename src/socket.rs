@@ -16,6 +16,8 @@ const RESIZE_REQUEST: u8 = b'R';
 const WAIT_REQUEST: u8 = b'W';
 const WAIT_EXIT_REQUEST: u8 = b'X';
 const ACCEPTANCE_REPLY: u8 = b'A';
+const ATTACH_ACCEPTED_REPLY: u8 = b'I';
+const ATTACH_REJECTED_REPLY: u8 = b'J';
 const GATE_LEASE_REPLY: u8 = b'L';
 const GATE_RELEASE_REPLY: u8 = b'U';
 const WAIT_SATISFIED_REPLY: u8 = b'Y';
@@ -222,6 +224,22 @@ where
         self.read_expected_tag(ACCEPTANCE_REPLY)
     }
 
+    pub fn read_attach_acceptance(&mut self) -> io::Result<()> {
+        let mut tag = [0_u8; 1];
+        self.reader.read_exact(&mut tag)?;
+        match tag[0] {
+            ATTACH_ACCEPTED_REPLY => Ok(()),
+            ATTACH_REJECTED_REPLY => {
+                let message = self.read_string()?;
+                Err(io::Error::new(io::ErrorKind::ConnectionRefused, message))
+            }
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("unexpected attach reply tag: {other}"),
+            )),
+        }
+    }
+
     pub fn read_gate_lease(&mut self) -> io::Result<TerminalInputGateLease> {
         self.read_expected_tag(GATE_LEASE_REPLY)?;
         Ok(TerminalInputGateLease::new(TerminalInputGateSequence::new(
@@ -247,13 +265,7 @@ where
     }
 
     pub fn read_exit_status(&mut self) -> io::Result<String> {
-        let bytes = self.read_frame()?;
-        String::from_utf8(bytes).map_err(|error| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("terminal exit status was not utf-8: {error}"),
-            )
-        })
+        self.read_string()
     }
 
     fn read_expected_tag(&mut self, expected: u8) -> io::Result<()> {
@@ -287,6 +299,15 @@ where
         self.reader.read_exact(&mut bytes)?;
         Ok(u64::from_be_bytes(bytes))
     }
+
+    fn read_string(&mut self) -> io::Result<String> {
+        String::from_utf8(self.read_frame()?).map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("socket reply string was not utf-8: {error}"),
+            )
+        })
+    }
 }
 
 pub struct SocketReplyWriter<Writer> {
@@ -308,6 +329,17 @@ where
 
     pub fn write_acceptance(&mut self) -> io::Result<()> {
         self.writer.write_all(&[ACCEPTANCE_REPLY])?;
+        self.writer.flush()
+    }
+
+    pub fn write_attach_accepted(&mut self) -> io::Result<()> {
+        self.writer.write_all(&[ATTACH_ACCEPTED_REPLY])?;
+        self.writer.flush()
+    }
+
+    pub fn write_attach_rejected(&mut self, reason: &str) -> io::Result<()> {
+        self.writer.write_all(&[ATTACH_REJECTED_REPLY])?;
+        self.write_frame(reason.as_bytes())?;
         self.writer.flush()
     }
 

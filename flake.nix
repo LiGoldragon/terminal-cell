@@ -96,6 +96,17 @@
           };
         };
 
+        apps.terminal-cell-resize = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-resize";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo build --bin terminal-cell-resize
+              exec target/debug/terminal-cell-resize "$@"
+            '';
+          };
+        };
+
         apps.live-coding-agent-witness = flake-utils.lib.mkApp {
           drv = pkgs.writeShellApplication {
             name = "terminal-cell-live-coding-agent-witness";
@@ -556,28 +567,17 @@
               toolchain
             ];
             text = ''
-              cargo build --bin terminal-cell-view
+              cargo build \
+                --bin terminal-cell-session-select \
+                --bin terminal-cell-view
               target_debug="$(pwd)/target/debug"
               session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
               session="''${TERMINAL_CELL_SESSION:-}"
 
               if [ -z "$session" ]; then
-                if [ ! -d "$session_root" ]; then
-                  printf 'no terminal-cell sessions under %s\n' "$session_root" >&2
-                  exit 1
-                fi
-                for candidate in "$session_root"/session-*; do
-                  [ -d "$candidate" ] || continue
-                  [ -S "$candidate/cell.sock" ] || continue
-                  if [ -z "$session" ] || [ "$candidate" -nt "$session" ]; then
-                    session="$candidate"
-                  fi
-                done
-              fi
-
-              if [ -z "$session" ]; then
-                printf 'no live terminal-cell session socket found under %s\n' "$session_root" >&2
-                exit 1
+                session="$("$target_debug/terminal-cell-session-select" --root "$session_root")"
+              else
+                session="$("$target_debug/terminal-cell-session-select" --session "$session")"
               fi
 
               socket="''${TERMINAL_CELL_SOCKET:-$session/cell.sock}"
