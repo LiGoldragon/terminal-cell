@@ -5,7 +5,7 @@ edition      = "2024"
 rust-version = "1.88"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/terminal-cell"
-description  = "Prototype durable terminal session owner with transcript replay."
+description  = "Low-level durable terminal cell with transcript replay."
 publish      = false
 
 [lib]

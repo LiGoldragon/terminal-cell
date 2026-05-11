@@ -1,5 +1,5 @@
 {
-  description = "Prototype durable terminal session owner with transcript replay.";
+  description = "Low-level durable terminal cell with transcript replay.";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";

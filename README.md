@@ -1,8 +1,8 @@
 # terminal-cell
 
-Prototype workspace for durable terminal session ownership: daemon-owned PTY
-lifecycle, transcript capture, raw programmatic input, and attach experiments
-without terminal multiplexer UI.
+Low-level durable terminal cell primitive: daemon-owned PTY lifecycle,
+transcript capture, raw programmatic input, and attach without terminal
+multiplexer UI.
 
 Status: this is a production-candidate low-level terminal cell for live human
 TUI use. The first

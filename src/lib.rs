@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-//! Prototype durable terminal session owner.
+//! Low-level durable terminal cell.
 
 mod client;
 mod error;

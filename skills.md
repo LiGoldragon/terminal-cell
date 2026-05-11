@@ -1,6 +1,7 @@
 # terminal-cell skill
 
-Work here when testing the minimal terminal-owner shape.
+Work here on the low-level terminal cell primitive that `persona-terminal`
+uses for durable PTY/session ownership.
 
 Rules for work here:
 
