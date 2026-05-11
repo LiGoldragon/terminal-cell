@@ -54,6 +54,23 @@
               cargoClippyExtraArgs = "--all-targets -- -D warnings";
             }
           );
+          source-witness = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test source_witness";
+            }
+          );
+        };
+
+        apps.source-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-source-witness";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --test source_witness -- --nocapture
+            '';
+          };
         };
 
         apps.session-witnesses = flake-utils.lib.mkApp {

@@ -86,7 +86,7 @@ impl TerminalCellDaemon {
             .await
             .map_err(|error| format!("terminal cell startup failed: {error}"))?;
 
-        TerminalSocketFile::prepare(self.socket.as_path())?;
+        TerminalSocketFile::new(self.socket.as_path()).prepare()?;
         let listener = UnixListener::bind(&self.socket)?;
         let runtime = Handle::current();
 
@@ -101,21 +101,30 @@ impl TerminalCellDaemon {
     }
 }
 
-struct TerminalSocketFile;
+struct TerminalSocketFile<'path> {
+    path: &'path Path,
+}
 
-impl TerminalSocketFile {
-    fn prepare(path: &Path) -> io::Result<()> {
-        if let Some(parent) = path.parent()
+impl<'path> TerminalSocketFile<'path> {
+    fn new(path: &'path Path) -> Self {
+        Self { path }
+    }
+
+    fn prepare(&self) -> io::Result<()> {
+        if let Some(parent) = self.path.parent()
             && !parent.as_os_str().is_empty()
         {
             fs::create_dir_all(parent)?;
         }
 
-        match fs::symlink_metadata(path) {
-            Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(path),
+        match fs::symlink_metadata(self.path) {
+            Ok(metadata) if metadata.file_type().is_socket() => fs::remove_file(self.path),
             Ok(_) => Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
-                format!("refusing to replace non-socket path {}", path.display()),
+                format!(
+                    "refusing to replace non-socket path {}",
+                    self.path.display()
+                ),
             )),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),

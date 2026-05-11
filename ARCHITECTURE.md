@@ -19,8 +19,10 @@ The current implementation proves several useful pieces:
 - programmatic input injection;
 - a PTY-writer input gate for non-interleaved Persona injection;
 - child-exit observation;
-- resize plumbing.
-- an attach stream that carries raw viewer bytes in both directions.
+- resize plumbing;
+- an attach stream that carries raw viewer bytes in both directions;
+- a source witness that the live attach path bypasses actor mailbox input,
+  transcript rendering, screen projection, and wait conditions.
 
 The previous live-viewer path was rejected after manual Pi testing in Ghostty
 showed slow, dropped, and eventually stalled keyboard interaction:
@@ -78,16 +80,34 @@ attach stdin  -> attached Unix stream -> daemon socket -> child PTY
 attach stdout <- attached Unix stream <- daemon socket <- child PTY
 ```
 
+Human input reaches the PTY through the writer port, not through the
+`TerminalCell` actor mailbox:
+
+```text
+terminal-cell-view stdin
+  -> attached Unix stream
+  -> TerminalCellConnection::attach_viewer
+  -> TerminalInputPort
+  -> TerminalInputWriter + TerminalInputGate
+  -> child PTY writer
+```
+
+That shape is deliberate. The attached GUI terminal is latency-sensitive, and
+the user must feel as if the keyboard is talking to the child TUI directly. The
+writer port keeps one serialized PTY writer and one gate for human and
+programmatic input, while avoiding Kameo mailbox scheduling, transcript replay,
+screen projection, and wait conditions on the live keyboard path.
+
+Programmatic input writes through the same `TerminalInputPort`. The difference
+is source provenance (`Viewer` or `Programmatic`), not a different PTY writer.
+
 Actors remain the right shape for state that lives across time, but they do not
-render the human session. Actor-owned concerns are lifecycle, metadata, health,
-resize authority, child exit, waiters, transcript sink supervision, and Persona
-control decisions.
+render the human session or carry live keyboard bytes. Actor-owned concerns are
+lifecycle, metadata, health, resize authority, child exit, waiters, transcript
+append, and Persona control decisions.
 
 Transcript recording observes PTY output as a side effect. A slow transcript
 sink records backpressure or loss; it does not slow the attached viewer.
-
-Programmatic input writes to the same child PTY write path as human input, with
-source provenance outside the live transport.
 
 The PTY write path also owns the input gate. Persona can temporarily close the
 gate to attached human input, write an injected byte sequence, then reopen the
@@ -100,8 +120,8 @@ the PTY writer, not in the viewer, so every frontend obeys the same rule.
 
 These are the checked-in components of the attach spike:
 
-- `TerminalCell` - Kameo actor that owns the PTY writer, transcript, resize
-  authority, diagnostic subscribers, and waiters.
+- `TerminalCell` - Kameo actor that owns lifecycle, transcript, resize
+  authority, diagnostic subscribers, exit state, and waiters.
 - `TerminalTranscript` - append-only output log sequenced by
   `TerminalSequence`.
 - `TerminalOutputPort` - typed ingress to the PTY-output fanout used by the
@@ -112,6 +132,8 @@ These are the checked-in components of the attach spike:
 - `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
 - `TerminalInput` - raw bytes plus source provenance, written to the PTY.
 - `TerminalInputPort` - typed ingress to the PTY writer.
+- `TerminalInputWriter` - blocking PTY writer plane that owns the input gate
+  and serializes all human and programmatic bytes.
 - `TerminalInputGateLease` - writer-side lease proving human input is closed
   before a programmatic injection sequence.
 - `TerminalInputGateRelease` - writer-side release record naming the lease and
@@ -139,6 +161,8 @@ These are the checked-in components of the attach spike:
   not the live display path.
 - Human keyboard bytes and Persona programmatic input write to the same child
   PTY input path.
+- Live human keyboard bytes enter `TerminalInputPort` directly from the attach
+  connection; they do not go through a Kameo actor mailbox.
 - Persona injection can acquire the PTY input gate so injected bytes are not
   interleaved with human keyboard bytes.
 - The input gate is writer arbitration only; it does not parse slash commands
@@ -172,6 +196,11 @@ Current useful witnesses:
 - `input_gate_holds_human_bytes_during_programmatic_injection`
 - `daemon_exposes_terminal_exit_status`
 - `daemon_resizes_the_owned_pty`
+- `source_witness::live_attach_input_bypasses_actor_mailbox_and_terminal_semantics`
+- `source_witness::live_attach_view_is_a_raw_stdin_stdout_pump`
+- `source_witness::live_output_reaches_viewers_before_transcript_actor`
+- `source_witness::terminal_input_writer_owns_the_pty_input_gate_without_actor_message_input`
+- `nix run .#source-witness`
 - `nix run .#live-coding-agent-witness`
 - `nix run .#live-pi-agent-witness`
 - `nix run .#ghostty-agent-witness`
@@ -191,9 +220,6 @@ Required next witnesses:
   input is buffered or rejected according to the gate state.
 - High-volume output does not make keyboard input lag.
 - A deliberately slow transcript sink does not affect the attached viewer.
-- Source inspection of the live path finds no actor mailbox, transcript replay,
-  screen projection, or wait condition between attach stdin/stdout and the child
-  PTY.
 
 ## Code Map
 

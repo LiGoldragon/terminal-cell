@@ -8,6 +8,10 @@ Rules for work here:
 - Keep the live human attach path out of actor mailboxes, transcript replay,
   and screen projection. It is a raw byte pump with minimal attach/detach/resize
   framing.
+- Route live human input from the attach stream into `TerminalInputPort`, then
+  into the dedicated `TerminalInputWriter` that owns the PTY input gate. Do not
+  reintroduce a `Message<TerminalInput>` actor-mailbox path for attached
+  keyboard bytes.
 - Treat PTY output bytes as transcript truth, but record transcript as a
   side-channel observer of the live path.
 - Treat screen snapshots as derived projections, not as live display state.

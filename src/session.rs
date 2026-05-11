@@ -83,7 +83,6 @@ impl TerminalLaunch {
 #[doc(hidden)]
 pub struct TerminalCellStart {
     launch: TerminalLaunch,
-    input_port: TerminalInputPort,
     input_receiver: Receiver<TerminalInputCommand>,
     output_port: TerminalOutputPort,
     output_receiver: Receiver<TerminalOutputCommand>,
@@ -92,14 +91,12 @@ pub struct TerminalCellStart {
 impl TerminalCellStart {
     fn new(
         launch: TerminalLaunch,
-        input_port: TerminalInputPort,
         input_receiver: Receiver<TerminalInputCommand>,
         output_port: TerminalOutputPort,
         output_receiver: Receiver<TerminalOutputCommand>,
     ) -> Self {
         Self {
             launch,
-            input_port,
             input_receiver,
             output_port,
             output_receiver,
@@ -396,6 +393,48 @@ impl TerminalInputGate {
     fn write_bytes(writer: &mut dyn Write, bytes: &[u8]) -> Result<(), TerminalCellError> {
         writer.write_all(bytes).map_err(TerminalCellError::pty)?;
         writer.flush().map_err(TerminalCellError::pty)
+    }
+}
+
+struct TerminalInputWriter {
+    writer: Box<dyn Write + Send>,
+    input_gate: TerminalInputGate,
+}
+
+impl TerminalInputWriter {
+    fn new(writer: Box<dyn Write + Send>) -> Self {
+        Self {
+            writer,
+            input_gate: TerminalInputGate::new(),
+        }
+    }
+
+    fn run(&mut self, receiver: Receiver<TerminalInputCommand>) {
+        while let Ok(command) = receiver.recv() {
+            if !self.handle(command) {
+                break;
+            }
+        }
+    }
+
+    fn handle(&mut self, command: TerminalInputCommand) -> bool {
+        match command {
+            TerminalInputCommand::Write(input) => self
+                .input_gate
+                .write_input(self.writer.as_mut(), input)
+                .is_ok(),
+            TerminalInputCommand::CloseHumanInput(reply) => {
+                let _ = reply.send(Ok(self.input_gate.close_human_input()));
+                true
+            }
+            TerminalInputCommand::OpenHumanInput(lease, reply) => {
+                let _ = reply.send(
+                    self.input_gate
+                        .open_human_input(lease, self.writer.as_mut()),
+                );
+                true
+            }
+        }
     }
 }
 
@@ -707,7 +746,6 @@ impl TerminalExitWaiter {
 
 pub struct TerminalCell {
     master: Box<dyn MasterPty + Send>,
-    input_port: TerminalInputPort,
     child_killer: Box<dyn ChildKiller + Send + Sync>,
     transcript: TerminalTranscript,
     subscribers: broadcast::Sender<TranscriptDelta>,
@@ -728,7 +766,6 @@ impl TerminalCell {
         let output_port = TerminalOutputPort::new(output_sender);
         let actor = Self::spawn(TerminalCellStart::new(
             launch,
-            input_port.clone(),
             input_receiver,
             output_port.clone(),
             output_receiver,
@@ -778,7 +815,7 @@ impl Actor for TerminalCell {
             .master
             .try_clone_reader()
             .map_err(TerminalCellError::pty)?;
-        let mut input_writer = pair.master.take_writer().map_err(TerminalCellError::pty)?;
+        let input_writer = pair.master.take_writer().map_err(TerminalCellError::pty)?;
         let input_receiver = args.input_receiver;
         let output_port = args.output_port;
         let output_receiver = args.output_receiver;
@@ -787,26 +824,7 @@ impl Actor for TerminalCell {
         thread::Builder::new()
             .name("terminal-cell-input".to_string())
             .spawn(move || {
-                let mut input_gate = TerminalInputGate::new();
-                while let Ok(command) = input_receiver.recv() {
-                    match command {
-                        TerminalInputCommand::Write(input) => {
-                            if input_gate
-                                .write_input(input_writer.as_mut(), input)
-                                .is_err()
-                            {
-                                break;
-                            }
-                        }
-                        TerminalInputCommand::CloseHumanInput(reply) => {
-                            let _ = reply.send(Ok(input_gate.close_human_input()));
-                        }
-                        TerminalInputCommand::OpenHumanInput(lease, reply) => {
-                            let _ = reply
-                                .send(input_gate.open_human_input(lease, input_writer.as_mut()));
-                        }
-                    }
-                }
+                TerminalInputWriter::new(input_writer).run(input_receiver);
             })
             .expect("terminal input thread starts");
 
@@ -854,7 +872,6 @@ impl Actor for TerminalCell {
         let (subscribers, _) = broadcast::channel(1024);
         Ok(Self {
             master: pair.master,
-            input_port: args.input_port,
             child_killer,
             transcript: TerminalTranscript::new(),
             subscribers,
@@ -890,18 +907,6 @@ impl Message<TerminalExited> for TerminalCell {
     async fn handle(&mut self, message: TerminalExited, _context: &mut Context<Self, Self::Reply>) {
         self.exit = Some(message.exit);
         self.notify_exit_waiters();
-    }
-}
-
-impl Message<TerminalInput> for TerminalCell {
-    type Reply = Result<InputAcceptance, TerminalCellError>;
-
-    async fn handle(
-        &mut self,
-        message: TerminalInput,
-        _context: &mut Context<Self, Self::Reply>,
-    ) -> Self::Reply {
-        self.input_port.accept(message)
     }
 }
 

@@ -20,6 +20,7 @@ Run the witness suite:
 
 ```sh
 nix flake check
+nix run .#source-witness
 nix run .#session-witnesses
 nix run .#agent-terminal-witness
 nix run .#daemon-witness

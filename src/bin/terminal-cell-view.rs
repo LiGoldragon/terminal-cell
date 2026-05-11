@@ -159,7 +159,7 @@ impl TerminalResizeWatcher {
     }
 
     fn resize_now(&mut self) -> io::Result<()> {
-        let size = AttachedTerminalSize::current()?;
+        let size = self.current_attached_terminal_size()?;
         if self.last_size == Some(size) {
             return Ok(());
         }
@@ -167,12 +167,8 @@ impl TerminalResizeWatcher {
         self.last_size = Some(size);
         Ok(())
     }
-}
 
-struct AttachedTerminalSize;
-
-impl AttachedTerminalSize {
-    fn current() -> io::Result<TerminalSize> {
+    fn current_attached_terminal_size(&self) -> io::Result<TerminalSize> {
         let (columns, rows) = terminal_size()?;
         Ok(TerminalSize::new(rows, columns))
     }
@@ -199,18 +195,23 @@ impl TerminalViewerReadiness {
     }
 }
 
-struct TerminalRawMode;
+struct TerminalRawMode {
+    enabled: bool,
+}
 
 impl TerminalRawMode {
     fn enter() -> io::Result<Self> {
         enable_raw_mode()?;
-        Ok(Self)
+        Ok(Self { enabled: true })
     }
 }
 
 impl Drop for TerminalRawMode {
     fn drop(&mut self) {
-        let _ = disable_raw_mode();
+        if self.enabled {
+            let _ = disable_raw_mode();
+            self.enabled = false;
+        }
     }
 }
 

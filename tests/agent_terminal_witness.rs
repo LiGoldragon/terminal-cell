@@ -3,23 +3,32 @@ use terminal_cell::{
     TranscriptSnapshotRequest, WaitForTranscriptText,
 };
 
-struct AgentTerminalFixture;
+struct AgentTerminalFixture {
+    launch: TerminalLaunch,
+}
 
 impl AgentTerminalFixture {
-    fn launch() -> TerminalLaunch {
-        TerminalLaunch::new(
-            TerminalCommand::new(
-                env!("CARGO_BIN_EXE_agent-terminal-fixture"),
-                Vec::<String>::new(),
+    fn new() -> Self {
+        Self {
+            launch: TerminalLaunch::new(
+                TerminalCommand::new(
+                    env!("CARGO_BIN_EXE_agent-terminal-fixture"),
+                    Vec::<String>::new(),
+                ),
+                TerminalSize::new(24, 80),
             ),
-            TerminalSize::new(24, 80),
-        )
+        }
+    }
+
+    fn spawn(self) -> terminal_cell::TerminalCellSession {
+        TerminalCell::spawn_session(self.launch)
     }
 }
 
 #[tokio::test]
 async fn agent_terminal_accepts_prompt_and_terminal_cell_reads_response() {
-    let terminal = TerminalCell::spawn_cell(AgentTerminalFixture::launch());
+    let session = AgentTerminalFixture::new().spawn();
+    let terminal = session.actor();
 
     assert!(
         terminal
@@ -29,12 +38,12 @@ async fn agent_terminal_accepts_prompt_and_terminal_cell_reads_response() {
         "agent terminal became ready"
     );
 
-    let acceptance = terminal
-        .ask(TerminalInput::new(
+    let acceptance = session
+        .input_port()
+        .accept(TerminalInput::new(
             b"hello terminal cell\r".to_vec(),
             InputSource::Programmatic,
         ))
-        .await
         .expect("prompt accepted");
     assert_eq!(acceptance.source(), InputSource::Programmatic);
 
@@ -57,7 +66,8 @@ async fn agent_terminal_accepts_prompt_and_terminal_cell_reads_response() {
 
 #[tokio::test]
 async fn agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics() {
-    let terminal = TerminalCell::spawn_cell(AgentTerminalFixture::launch());
+    let session = AgentTerminalFixture::new().spawn();
+    let terminal = session.actor();
 
     assert!(
         terminal
@@ -67,12 +77,12 @@ async fn agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics() {
         "agent terminal became ready"
     );
 
-    terminal
-        .ask(TerminalInput::new(
+    session
+        .input_port()
+        .accept(TerminalInput::new(
             b"/usage\r".to_vec(),
             InputSource::Programmatic,
         ))
-        .await
         .expect("usage probe accepted");
 
     assert!(

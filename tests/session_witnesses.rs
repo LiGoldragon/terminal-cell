@@ -1,23 +1,40 @@
 use kameo::actor::ActorRef;
 
 use terminal_cell::{
-    InputSource, ScreenProjectionRequest, TerminalCell, TerminalCommand, TerminalExitRequest,
-    TerminalInput, TerminalLaunch, TerminalSequence, TerminalSize, TranscriptSnapshotRequest,
-    TranscriptSubscriptionRequest, WaitForTerminalExit, WaitForTranscriptText,
+    InputSource, ScreenProjectionRequest, TerminalCell, TerminalCellSession, TerminalCommand,
+    TerminalExitRequest, TerminalInput, TerminalLaunch, TerminalSequence, TerminalSize,
+    TranscriptSnapshotRequest, TranscriptSubscriptionRequest, WaitForTerminalExit,
+    WaitForTranscriptText,
 };
 
-struct TerminalFixture;
+struct TerminalFixture {
+    launch: TerminalLaunch,
+}
 
 impl TerminalFixture {
-    fn shell(arguments: &str) -> TerminalLaunch {
-        TerminalLaunch::new(
-            TerminalCommand::new("sh", vec!["-lc".to_string(), arguments.to_string()]),
-            TerminalSize::new(24, 80),
-        )
+    fn shell(arguments: &str) -> Self {
+        Self {
+            launch: TerminalLaunch::new(
+                TerminalCommand::new("sh", vec!["-lc".to_string(), arguments.to_string()]),
+                TerminalSize::new(24, 80),
+            ),
+        }
     }
 
     fn spawn_shell(arguments: &str) -> ActorRef<TerminalCell> {
-        TerminalCell::spawn_cell(Self::shell(arguments))
+        Self::shell(arguments).spawn_cell()
+    }
+
+    fn spawn_shell_session(arguments: &str) -> TerminalCellSession {
+        Self::shell(arguments).spawn_session()
+    }
+
+    fn spawn_cell(self) -> ActorRef<TerminalCell> {
+        self.spawn_session().actor()
+    }
+
+    fn spawn_session(self) -> TerminalCellSession {
+        TerminalCell::spawn_session(self.launch)
     }
 }
 
@@ -47,14 +64,16 @@ async fn detached_output_is_replayed_to_late_subscriber() {
 
 #[tokio::test]
 async fn programmatic_input_uses_the_same_pty_input_port() {
-    let terminal = TerminalFixture::spawn_shell("IFS= read -r line; printf 'seen:%s\\n' \"$line\"");
+    let session =
+        TerminalFixture::spawn_shell_session("IFS= read -r line; printf 'seen:%s\\n' \"$line\"");
+    let terminal = session.actor();
 
-    let acceptance = terminal
-        .ask(TerminalInput::new(
+    let acceptance = session
+        .input_port()
+        .accept(TerminalInput::new(
             b"/usage\r".to_vec(),
             InputSource::Programmatic,
         ))
-        .await
         .expect("input accepted");
     assert_eq!(acceptance.source(), InputSource::Programmatic);
 
