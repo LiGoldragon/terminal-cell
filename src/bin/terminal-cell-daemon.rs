@@ -213,6 +213,10 @@ impl TerminalCellDaemonLoop {
     }
 }
 
+/// TRANSITIONAL: direct `signal-persona-terminal` handling in this daemon is a
+/// witness path while `persona-terminal` becomes the production Signal
+/// endpoint. Keep this state local to the terminal-cell daemon and do not grow
+/// it into a Persona-facing registry or policy owner.
 struct TerminalSignalControlState {
     next_prompt_pattern: u64,
     prompt_patterns: HashMap<String, terminal_signal::PromptPattern>,

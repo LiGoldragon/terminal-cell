@@ -28,6 +28,8 @@ Rules for work here:
 - Treat screen snapshots as derived projections, not as live display state.
 - Keep command-line tools as daemon clients. The daemon owns the Kameo
   `TerminalCell`; clients send socket requests.
+- Treat direct `signal-persona-terminal` handling in this repo as transitional
+  witness code. The production Persona Signal endpoint is `persona-terminal`.
 - Announce daemon readiness only after the actor startup hook has completed.
 - For GUI witnesses, make the view process push an attachment-ready signal
   before the script injects input.

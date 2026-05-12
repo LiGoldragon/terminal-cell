@@ -26,8 +26,9 @@ The current implementation proves several useful pieces:
 - single active attached viewer authority;
 - headless daemon resize control;
 - live-session selection that skips stale runtime directories;
-- `signal-persona-terminal` control frames for prompt patterns, input gates,
-  write injection, capture/resize, and worker lifecycle subscription;
+- transitional direct `signal-persona-terminal` control frames for prompt
+  patterns, input gates, write injection, capture/resize, and worker lifecycle
+  subscription;
 - behavioral witnesses for slow transcript subscribers, reattach, stale session
   rejection, and attached input under output load.
 
@@ -78,8 +79,11 @@ are a local convenience registry, not durable system truth.
 
 The daemon accepts two control encodings during the transition: the older
 byte-tag CLI protocol used by local command-line tools, and length-prefixed
-`signal-persona-terminal` frames for the Persona terminal control plane. Both
-encodings drive the same internal primitive. Neither encoding is the live
+`signal-persona-terminal` frames. The direct Signal endpoint is transitional
+witness code, not the production Persona boundary. Production Persona control
+enters through `persona-terminal`, which owns the registry, prompt-pattern
+lifecycle, input-gate policy, injection decision, and component Sema state.
+Both encodings drive the same internal primitive. Neither encoding is the live
 attached-viewer byte path.
 
 The production shape belongs in a higher-level `persona-terminal` supervisor.
@@ -157,11 +161,14 @@ are either buffered in order or rejected with an explicit gate state, while the
 injected bytes are written contiguously to the child PTY. The gate must sit at
 the PTY writer, not in the viewer, so every frontend obeys the same rule.
 
-Signal `AcquireInputGate` returns prompt state when a prompt pattern id is
-supplied. Signal `WriteInjection` rejects dirty-prompt leases by default. The
-prompt pattern registry is a control-plane aid for safe injection; literal and
-regex patterns are suffix checks, and trailing bytes after the last match make
-the prompt dirty. It does not make terminal-cell a harness semantic parser.
+Transitional Signal `AcquireInputGate` returns prompt state when a prompt
+pattern id is supplied. Transitional Signal `WriteInjection` rejects
+dirty-prompt leases by default. The prompt pattern registry in this repo is a
+witness aid for safe injection until `persona-terminal` fully owns the
+production control plane; literal and regex patterns are suffix checks, and
+trailing bytes after the last match make the prompt dirty. It does not make
+terminal-cell a harness semantic parser or the production Persona terminal
+endpoint.
 
 One terminal cell has at most one active attached viewer. The active viewer is
 the only human byte source for the cell. A second attach request while a viewer
@@ -196,10 +203,12 @@ These are the checked-in components:
   before a programmatic injection sequence.
 - `TerminalInputGateRelease` - writer-side release record naming the lease and
   how many held human bytes were flushed when the gate reopened.
-- Signal prompt pattern control - daemon-side registry used to check whether
-  the transcript currently ends in a registered terminal-ready shape.
-- Signal worker lifecycle subscription - pushed initial worker snapshot plus
-  live worker lifecycle deltas over `signal-persona-terminal`.
+- Transitional Signal prompt pattern control - daemon-side witness registry
+  used to check whether the transcript currently ends in a registered
+  terminal-ready shape. Production ownership belongs in `persona-terminal`.
+- Transitional Signal worker lifecycle subscription - pushed initial worker
+  snapshot plus live worker lifecycle deltas over `signal-persona-terminal`.
+  Production ownership belongs in `persona-terminal`.
 - `TerminalExit` - recorded child status.
 - `TerminalCellSocketClient` - Unix-socket client used by command-line tools
   and viewers.
@@ -239,9 +248,11 @@ These are the checked-in components:
   connection; they do not go through a Kameo actor mailbox.
 - Persona injection can acquire the PTY input gate so injected bytes are not
   interleaved with human keyboard bytes.
-- Signal `AcquireInputGate` returns prompt state when a prompt pattern id is
-  supplied.
-- Signal `WriteInjection` rejects dirty-prompt leases by default.
+- Transitional Signal `AcquireInputGate` returns prompt state when a prompt
+  pattern id is supplied.
+- Transitional Signal `WriteInjection` rejects dirty-prompt leases by default.
+- Direct `signal-persona-terminal` handling in this repo is witness code. The
+  production Persona Signal endpoint is `persona-terminal`.
 - The input gate is writer arbitration only; it does not parse slash commands
   or infer harness prompt state.
 - The live attach path is a raw byte transport with only minimal session

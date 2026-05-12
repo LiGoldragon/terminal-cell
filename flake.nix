@@ -51,6 +51,13 @@
         checks = {
           default = craneLib.cargoBuild (commonArgs // { inherit cargoArtifacts; });
           build = craneLib.cargoBuild (commonArgs // { inherit cargoArtifacts; });
+          ownership = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test ownership";
+            }
+          );
           fmt = craneLib.cargoFmt { inherit src; };
           clippy = craneLib.cargoClippy (
             commonArgs
