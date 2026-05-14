@@ -79,18 +79,15 @@ are a local convenience registry, not durable system truth.
 
 The daemon accepts two control encodings during the transition: the older
 byte-tag CLI protocol used by local command-line tools, and length-prefixed
-`signal-persona-terminal` frames. **Per
-`~/primary/reports/designer/127-decisions-resolved-2026-05-11.md` §2 and
-`~/primary/reports/designer/143-prototype-readiness-gap-audit.md` §2.7,
-the production control plane is `signal-persona-terminal`** — terminal-cell
-speaks signal-persona-terminal directly on the control socket. The
-byte-tag CLI protocol stays as a transitional convenience for local
-command-line tools. Production Persona control still flows through
-`persona-terminal` (which owns the registry, prompt-pattern lifecycle,
-input-gate policy, injection decision, and component Sema state); the
-control wire between persona-terminal and terminal-cell is Signal.
-Neither encoding is the live attached-viewer byte path — that stays raw
-for latency.
+`signal-persona-terminal` frames. **The production control plane is
+`signal-persona-terminal`** — terminal-cell speaks signal-persona-terminal
+directly on the control socket. The byte-tag CLI protocol stays as a
+transitional convenience for local command-line tools. Production Persona
+control still flows through `persona-terminal` (which owns the registry,
+prompt-pattern lifecycle, input-gate policy, injection decision, and
+component Sema state); the control wire between persona-terminal and
+terminal-cell is Signal. Neither encoding is the live attached-viewer
+byte path — that stays raw for latency.
 
 **Control socket mode**: 0600, internal (only the engine's `persona`
 user can connect). System-specialist may revise when production
