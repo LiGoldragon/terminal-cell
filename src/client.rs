@@ -2,7 +2,7 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use signal_core::SemaVerb;
+use signal_core::SignalVerb;
 use signal_persona_terminal::{
     TerminalEvent as SignalTerminalEvent, TerminalRequest as SignalTerminalRequest,
 };
@@ -99,7 +99,7 @@ impl TerminalCellSocketClient {
 
     pub fn send_signal_request(
         &self,
-        verb: SemaVerb,
+        verb: SignalVerb,
         request: SignalTerminalRequest,
     ) -> io::Result<SignalTerminalEvent> {
         let mut stream = UnixStream::connect(&self.socket)?;

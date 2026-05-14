@@ -1,7 +1,7 @@
 use std::io::{self, Read, Write};
 
 use signal_core::{
-    FrameBody as SignalFrameBody, Reply as SignalReply, Request as SignalRequest, SemaVerb,
+    FrameBody as SignalFrameBody, Reply as SignalReply, Request as SignalRequest, SignalVerb,
 };
 use signal_persona_terminal::{
     Frame as SignalTerminalFrame, TerminalEvent as SignalTerminalEvent,
@@ -49,16 +49,16 @@ pub enum SocketRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalSocketRequest {
-    verb: SemaVerb,
+    verb: SignalVerb,
     payload: SignalTerminalRequest,
 }
 
 impl SignalSocketRequest {
-    fn new(verb: SemaVerb, payload: SignalTerminalRequest) -> Self {
+    fn new(verb: SignalVerb, payload: SignalTerminalRequest) -> Self {
         Self { verb, payload }
     }
 
-    pub const fn verb(&self) -> SemaVerb {
+    pub const fn verb(&self) -> SignalVerb {
         self.verb
     }
 
@@ -270,12 +270,12 @@ where
 
     pub fn write_signal_request(
         &mut self,
-        verb: SemaVerb,
+        verb: SignalVerb,
         request: SignalTerminalRequest,
     ) -> io::Result<()> {
-        let frame = SignalTerminalFrame::new(SignalFrameBody::Request(SignalRequest::operation(
-            verb, request,
-        )));
+        let frame = SignalTerminalFrame::new(SignalFrameBody::Request(
+            SignalRequest::unchecked_operation(verb, request),
+        ));
         let bytes = frame.encode_length_prefixed().map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
