@@ -3,7 +3,7 @@ use std::env;
 use std::error::Error;
 use std::fs;
 use std::io::{self, Read, Write};
-use std::os::unix::fs::FileTypeExt;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -93,8 +93,7 @@ impl TerminalCellDaemon {
             .await
             .map_err(|error| format!("terminal cell startup failed: {error}"))?;
 
-        TerminalSocketFile::new(self.socket.as_path()).prepare()?;
-        let listener = UnixListener::bind(&self.socket)?;
+        let listener = TerminalSocketFile::new(self.socket.as_path()).bind_listener()?;
         let runtime = Handle::current();
 
         println!("terminal-cell-daemon socket={}", self.socket.display());
@@ -117,6 +116,13 @@ impl<'path> TerminalSocketFile<'path> {
         Self { path }
     }
 
+    fn bind_listener(&self) -> io::Result<UnixListener> {
+        self.prepare()?;
+        let listener = UnixListener::bind(self.path)?;
+        self.apply_control_socket_mode()?;
+        Ok(listener)
+    }
+
     fn prepare(&self) -> io::Result<()> {
         if let Some(parent) = self.path.parent()
             && !parent.as_os_str().is_empty()
@@ -136,6 +142,10 @@ impl<'path> TerminalSocketFile<'path> {
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(error),
         }
+    }
+
+    fn apply_control_socket_mode(&self) -> io::Result<()> {
+        fs::set_permissions(self.path, fs::Permissions::from_mode(0o600))
     }
 }
 
@@ -210,6 +220,51 @@ impl TerminalCellDaemonLoop {
                 })?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalSocketFile;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    struct SocketPathFixture {
+        path: PathBuf,
+        root: PathBuf,
+    }
+
+    impl SocketPathFixture {
+        fn new(name: &str) -> Self {
+            let root =
+                std::env::temp_dir().join(format!("terminal-cell-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).expect("socket fixture root created");
+
+            Self {
+                path: root.join("cell.sock"),
+                root,
+            }
+        }
+    }
+
+    impl Drop for SocketPathFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn terminal_socket_file_bind_listener_applies_mode() {
+        let fixture = SocketPathFixture::new("socket-mode");
+        let _listener = TerminalSocketFile::new(fixture.path.as_path())
+            .bind_listener()
+            .expect("socket listener binds");
+        let metadata = fs::metadata(fixture.path.as_path()).expect("socket metadata readable");
+        let mode = metadata.permissions().mode() & 0o777;
+
+        assert_eq!(mode, 0o600);
     }
 }
 

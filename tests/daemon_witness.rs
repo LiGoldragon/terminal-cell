@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
@@ -147,6 +148,15 @@ impl Drop for DaemonFixture {
         let _ = self.child.wait();
         let _ = fs::remove_dir_all(&self.root);
     }
+}
+
+#[test]
+fn control_socket_mode_is_enforced_by_daemon() {
+    let daemon = DaemonFixture::spawn("control-socket-mode");
+    let metadata = fs::metadata(&daemon.socket).expect("daemon socket metadata readable");
+    let mode = metadata.permissions().mode() & 0o777;
+
+    assert_eq!(mode, 0o600);
 }
 
 #[test]

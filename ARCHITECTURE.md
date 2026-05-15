@@ -306,6 +306,7 @@ These are the checked-in components:
 - Daemon-owned blocking planes, including socket accept and attach pumping,
   use the same worker lifecycle channel instead of inventing a separate
   monitoring path.
+- The daemon applies mode 0600 to its control socket immediately after bind.
 - CLIs are daemon clients; they do not own the runtime or transcript.
 - Child exit is pushed session state; clients do not poll process tables.
 - GUI witness readiness is a pushed event from the attached view process, not a
@@ -336,6 +337,7 @@ Current useful witnesses:
 - `slow_transcript_subscriber_does_not_block_attached_viewer_output`
 - `attached_input_reaches_child_during_high_volume_output`
 - `daemon_worker_lifecycle_is_observable_over_socket`
+- `control_socket_mode_is_enforced_by_daemon`
 - `session_selector_skips_newer_stale_sessions`
 - `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`

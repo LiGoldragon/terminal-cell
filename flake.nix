@@ -58,6 +58,13 @@
               cargoTestExtraArgs = "--test ownership";
             }
           );
+          control-socket-mode = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--bin terminal-cell-daemon tests::terminal_socket_file_bind_listener_applies_mode -- --exact";
+            }
+          );
           fmt = craneLib.cargoFmt { inherit src; };
           clippy = craneLib.cargoClippy (
             commonArgs
@@ -104,6 +111,16 @@
             runtimeInputs = [ toolchain ];
             text = ''
               cargo test --test daemon_witness -- --nocapture
+            '';
+          };
+        };
+
+        apps.control-socket-mode-witness = flake-utils.lib.mkApp {
+          drv = pkgs.writeShellApplication {
+            name = "terminal-cell-control-socket-mode-witness";
+            runtimeInputs = [ toolchain ];
+            text = ''
+              cargo test --bin terminal-cell-daemon tests::terminal_socket_file_bind_listener_applies_mode -- --exact --nocapture
             '';
           };
         };
