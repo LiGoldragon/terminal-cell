@@ -492,11 +492,7 @@ impl TerminalCellConnection {
                 self.stream_signal_worker_lifecycle(subscription)
             }
             terminal_signal::TerminalRequest::TerminalWorkerLifecycleRetraction(token) => {
-                let ack = terminal_signal::TerminalDetached {
-                    terminal: token.terminal,
-                    generation: terminal_signal::TerminalGeneration::new(1),
-                    reason: terminal_signal::TerminalDetachmentReason::HumanRequested,
-                };
+                let ack = terminal_signal::SubscriptionRetracted { token };
                 SocketReplyWriter::new(&mut self.stream).write_signal_event(ack.into())
             }
             payload => {

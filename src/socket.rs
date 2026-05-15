@@ -409,9 +409,7 @@ where
         }
     }
 
-    pub fn read_signal_subscription_event(
-        &mut self,
-    ) -> io::Result<SignalTerminalStreamEvent> {
+    pub fn read_signal_subscription_event(&mut self) -> io::Result<SignalTerminalStreamEvent> {
         let frame = self.read_signal_frame()?;
         match frame.into_body() {
             SignalFrameBody::SubscriptionEvent { event, .. } => Ok(event),
