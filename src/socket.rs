@@ -2,8 +2,7 @@ use std::io::{self, Read, Write};
 
 use signal_core::{
     ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody as SignalFrameBody, NonEmpty,
-    Operation, Reply as SignalReply, Request as SignalRequest, RequestOutcome, SessionEpoch,
-    SignalVerb, SubReply,
+    Operation, Reply as SignalReply, Request as SignalRequest, SessionEpoch, SignalVerb, SubReply,
 };
 
 /// terminal-cell's socket is a synchronous request/reply protocol with
@@ -388,16 +387,19 @@ where
     pub fn read_signal_event(&mut self) -> io::Result<SignalTerminalEvent> {
         let frame = self.read_signal_frame()?;
         match frame.into_body() {
-            SignalFrameBody::Reply { reply, .. } => {
-                let sub_reply = reply.per_operation.into_head();
-                match sub_reply {
+            SignalFrameBody::Reply { reply, .. } => match reply {
+                SignalReply::Accepted { per_operation, .. } => match per_operation.into_head() {
                     SubReply::Ok { payload, .. } => Ok(payload),
                     other => Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("expected ok sub-reply for signal event, got {other:?}"),
                     )),
-                }
-            }
+                },
+                SignalReply::Rejected { reason } => Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("signal reply rejected: {reason:?}"),
+                )),
+            },
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("expected signal reply operation, got {other:?}"),
@@ -528,13 +530,10 @@ where
     }
 
     pub fn write_signal_event(&mut self, event: SignalTerminalEvent) -> io::Result<()> {
-        let reply = SignalReply {
-            outcome: RequestOutcome::Completed,
-            per_operation: NonEmpty::single(SubReply::Ok {
-                verb: SignalVerb::Subscribe,
-                payload: event,
-            }),
-        };
+        let reply = SignalReply::completed(NonEmpty::single(SubReply::Ok {
+            verb: SignalVerb::Subscribe,
+            payload: event,
+        }));
         let frame = SignalTerminalFrame::new(SignalFrameBody::Reply {
             exchange: synthetic_exchange(),
             reply,
