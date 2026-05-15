@@ -459,12 +459,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "paste"
-version = "1.0.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -737,12 +731,22 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#29006d41cf977c3db129e97e46fce3fc51b19cd4"
+source = "git+https://github.com/LiGoldragon/signal-core.git#dd12794276ce48cc41dcceb97416476e54421f50"
 dependencies = [
  "nota-codec",
- "paste",
  "rkyv",
+ "signal-core-macros",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "signal-core-macros"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-core.git#dd12794276ce48cc41dcceb97416476e54421f50"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -779,7 +783,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#b9b36ae626a26ca333693c0e592b6f7870e8d2a3"
+source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#c0b518bf4bf857ead48e748ab2c431895559fb84"
 dependencies = [
  "nota-codec",
  "rkyv",

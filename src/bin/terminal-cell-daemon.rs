@@ -491,6 +491,14 @@ impl TerminalCellConnection {
             terminal_signal::TerminalRequest::SubscribeTerminalWorkerLifecycle(subscription) => {
                 self.stream_signal_worker_lifecycle(subscription)
             }
+            terminal_signal::TerminalRequest::TerminalWorkerLifecycleRetraction(_) => {
+                // Subscription retraction acknowledges via a generic
+                // accept; terminal-cell's per-connection model treats
+                // a closed connection as the natural stream-close. No
+                // dedicated reply variant in TerminalReply for this
+                // yet.
+                Ok(())
+            }
             payload => {
                 let event = self.signal_event(payload)?;
                 SocketReplyWriter::new(&mut self.stream).write_signal_event(event)
@@ -501,7 +509,7 @@ impl TerminalCellConnection {
     fn signal_event(
         &mut self,
         request: terminal_signal::TerminalRequest,
-    ) -> io::Result<terminal_signal::TerminalEvent> {
+    ) -> io::Result<terminal_signal::TerminalReply> {
         match request {
             terminal_signal::TerminalRequest::TerminalConnection(connection) => {
                 Ok(terminal_signal::TerminalReady {
@@ -596,13 +604,20 @@ impl TerminalCellConnection {
                 }
                 .into())
             }
+            terminal_signal::TerminalRequest::TerminalWorkerLifecycleRetraction(token) => {
+                Ok(terminal_signal::TerminalRejected {
+                    terminal: token.terminal,
+                    reason: terminal_signal::TerminalRejectionReason::TransportFailed,
+                }
+                .into())
+            }
         }
     }
 
     fn acquire_signal_input_gate(
         &mut self,
         acquire: terminal_signal::AcquireInputGate,
-    ) -> io::Result<terminal_signal::TerminalEvent> {
+    ) -> io::Result<terminal_signal::TerminalReply> {
         let prompt_state = self.signal_prompt_state(acquire.prompt_pattern_id.as_ref())?;
         match self.input_port.close_human_input() {
             Ok(lease) => {
@@ -632,7 +647,7 @@ impl TerminalCellConnection {
     fn release_signal_input_gate(
         &mut self,
         release: terminal_signal::ReleaseInputGate,
-    ) -> io::Result<terminal_signal::TerminalEvent> {
+    ) -> io::Result<terminal_signal::TerminalReply> {
         if self
             .signal_state()?
             .signal_lease_prompt_state(&release.lease)
@@ -673,7 +688,7 @@ impl TerminalCellConnection {
     fn write_signal_injection(
         &mut self,
         injection: terminal_signal::WriteInjection,
-    ) -> io::Result<terminal_signal::TerminalEvent> {
+    ) -> io::Result<terminal_signal::TerminalReply> {
         let prompt_state = self
             .signal_state()?
             .signal_lease_prompt_state(&injection.lease)
@@ -735,7 +750,7 @@ impl TerminalCellConnection {
         )?;
 
         while let Some(event) = lifecycle.blocking_next_live_event() {
-            SocketReplyWriter::new(&mut self.stream).write_signal_event(
+            SocketReplyWriter::new(&mut self.stream).write_signal_subscription_event(
                 terminal_signal::TerminalWorkerLifecycleEvent {
                     terminal: subscription.terminal.clone(),
                     observation: Self::signal_worker_lifecycle(event),

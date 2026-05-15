@@ -68,14 +68,17 @@ on the raw byte stream and does not parse terminal escape sequences.
 
 ## 1 - Ownership
 
-The daemon owns the child process group, PTY, socket, and session lifecycle.
+The daemon owns the child process group, PTY, sockets, and session lifecycle.
 Command-line tools and GUI frontends are clients.
 
 This component has no Sema database. A running session is discoverable through
 its runtime directory under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
-That directory holds `cell.sock`, pid files, `session.env`, `session.name`, and
-diagnostic logs. The list and rename tools inspect or update those files; they
-are a local convenience registry, not durable system truth.
+That directory currently holds `cell.sock`, pid files, `session.env`,
+`session.name`, and diagnostic logs. The current single `cell.sock` is a
+transitional implementation detail. The production runtime directory holds two
+cell sockets: `control.sock` and `data.sock`. The list and rename tools inspect
+or update those files; they are a local convenience registry, not durable
+system truth.
 
 The daemon accepts two control encodings during the transition: the older
 byte-tag CLI protocol used by local command-line tools, and length-prefixed
@@ -93,6 +96,15 @@ byte path — that stays raw for latency.
 user can connect). System-specialist may revise when production
 deployment lands.
 
+**Production socket split**: every terminal cell exposes two sockets.
+`control.sock` carries privileged, length-prefixed
+`signal-persona-terminal` frames for prompt patterns, input gates, write
+injection, worker lifecycle, capture, resize, and other control-plane effects.
+`data.sock` carries the attached-viewer byte stream: keyboard bytes, PTY output,
+resize notices, attach/detach/exit framing, and explicit accept/reject. The
+data socket is never a Signal socket and never an actor mailbox. A production
+cell must not mode-shift one socket between these roles.
+
 The production shape belongs in a higher-level `persona-terminal` supervisor.
 `terminal-cell` remains the low-level PTY owner for one terminal cell. The
 supervisor owns the global terminal registry: one well-known daemon socket,
@@ -107,7 +119,7 @@ The clean production split is:
 ```text
 persona-terminal        registry, names, Sema state, lifecycle policy
 signal-persona-terminal typed terminal requests and events
-terminal-cell           one child process group, one PTY, raw attach/control
+terminal-cell           one child process group, one PTY, raw attach primitive
 viewer adapters         disposable visible windows around the terminal owner
 persona-system          OS facts such as focus and window state
 persona-harness         harness-specific prompts, usage probes, quota parsing
@@ -260,6 +272,13 @@ These are the checked-in components:
 - Transitional Signal `WriteInjection` rejects dirty-prompt leases by default.
 - Direct `signal-persona-terminal` handling in this repo is witness code. The
   production Persona Signal endpoint is `persona-terminal`.
+- Production cells expose separate `control.sock` and `data.sock` sockets.
+  The control socket carries Signal control frames only. The data socket
+  carries attached-viewer bytes only.
+- A production client connected to `control.sock` never carries live viewer
+  bytes. A production client connected to `data.sock` never sends Signal
+  control frames.
+- There is no production single-socket mode-shift path.
 - The input gate is writer arbitration only; it does not parse slash commands
   or infer harness prompt state.
 - The live attach path is a raw byte transport with only minimal session

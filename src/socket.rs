@@ -1,23 +1,25 @@
 use std::io::{self, Read, Write};
 
 use signal_core::{
-    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody as SignalFrameBody, NonEmpty,
-    Operation, Reply as SignalReply, Request as SignalRequest, SessionEpoch, SignalVerb, SubReply,
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Reply as SignalReply,
+    Request as SignalRequest, SessionEpoch, SignalVerb, SubReply,
 };
 
 /// terminal-cell's socket is a synchronous request/reply protocol with
 /// no handshake-negotiated exchange. The exchange identifier is
-/// degenerate but still required by the new [`SignalFrameBody`] shape
+/// degenerate but still required by the new `StreamingFrameBody` shape
 /// per `/177` §3. A future cutover wires real handshake + lane tracking.
 fn synthetic_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
         SessionEpoch::new(0),
         ExchangeLane::Connector,
-        ExchangeSequence::first(),
+        LaneSequence::first(),
     )
 }
+use signal_core::{StreamEventIdentifier, SubscriptionTokenInner};
 use signal_persona_terminal::{
-    Frame as SignalTerminalFrame, TerminalEvent as SignalTerminalEvent,
+    TerminalEvent as SignalTerminalStreamEvent, TerminalFrame as SignalTerminalFrame,
+    TerminalFrameBody as SignalFrameBody, TerminalReply as SignalTerminalEvent,
     TerminalRequest as SignalTerminalRequest,
 };
 
@@ -538,6 +540,33 @@ where
             exchange: synthetic_exchange(),
             reply,
         });
+        self.write_encoded_frame(frame)
+    }
+
+    /// Emit a pushed subscription event on the daemon's lane. Per
+    /// `/177` §3 the channel's `TerminalEvent` payload travels through
+    /// the `StreamingFrameBody::SubscriptionEvent` variant, distinct
+    /// from the direct-reply path. terminal-cell's per-connection
+    /// socket model uses a degenerate token until handshake/lane
+    /// tracking lands.
+    pub fn write_signal_subscription_event(
+        &mut self,
+        event: SignalTerminalStreamEvent,
+    ) -> io::Result<()> {
+        let exchange = synthetic_exchange();
+        let frame = SignalTerminalFrame::new(SignalFrameBody::SubscriptionEvent {
+            event_identifier: StreamEventIdentifier::new(
+                exchange.session_epoch,
+                exchange.lane,
+                exchange.sequence,
+            ),
+            token: SubscriptionTokenInner::new(0),
+            event,
+        });
+        self.write_encoded_frame(frame)
+    }
+
+    fn write_encoded_frame(&mut self, frame: SignalTerminalFrame) -> io::Result<()> {
         let bytes = frame.encode_length_prefixed().map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,

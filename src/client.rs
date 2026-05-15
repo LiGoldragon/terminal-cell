@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use signal_core::SignalVerb;
 use signal_persona_terminal::{
-    TerminalEvent as SignalTerminalEvent, TerminalRequest as SignalTerminalRequest,
+    TerminalReply as SignalTerminalEvent, TerminalRequest as SignalTerminalRequest,
 };
 
 use crate::{
