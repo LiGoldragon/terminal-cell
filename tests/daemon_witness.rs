@@ -309,7 +309,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
         )
         .expect("prompt pattern registration succeeds");
     let pattern_id = match registered {
-        terminal_signal::TerminalEvent::PromptPatternRegistered(registered) => {
+        terminal_signal::TerminalReply::PromptPatternRegistered(registered) => {
             registered.pattern_id
         }
         other => panic!("expected prompt-pattern registration, got {other:?}"),
@@ -327,7 +327,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
         )
         .expect("input gate acquisition succeeds");
     let lease = match acquired {
-        terminal_signal::TerminalEvent::GateAcquired(acquired) => {
+        terminal_signal::TerminalReply::GateAcquired(acquired) => {
             assert_eq!(acquired.prompt_state, terminal_signal::PromptState::Clean);
             acquired.lease
         }
@@ -351,7 +351,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
         )
         .expect("Signal write injection succeeds");
     assert!(
-        matches!(ack, terminal_signal::TerminalEvent::InjectionAck(_)),
+        matches!(ack, terminal_signal::TerminalReply::InjectionAck(_)),
         "Signal write injection is acknowledged: {ack:?}"
     );
     daemon.wait_for_text("agent-response: persona-signal");
@@ -367,7 +367,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
         )
         .expect("Signal input gate release succeeds");
     match released {
-        terminal_signal::TerminalEvent::GateReleased(released) => {
+        terminal_signal::TerminalReply::GateReleased(released) => {
             assert_eq!(
                 released.cached_human_bytes.into_u64(),
                 "human-held-behind-signal-gate\r".len() as u64
@@ -400,7 +400,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
         )
         .expect("prompt pattern registration succeeds");
     let pattern_id = match registered {
-        terminal_signal::TerminalEvent::PromptPatternRegistered(registered) => {
+        terminal_signal::TerminalReply::PromptPatternRegistered(registered) => {
             registered.pattern_id
         }
         other => panic!("expected prompt-pattern registration, got {other:?}"),
@@ -418,7 +418,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
         )
         .expect("dirty prompt still returns a gate acquisition with state");
     let lease = match acquired {
-        terminal_signal::TerminalEvent::GateAcquired(acquired) => {
+        terminal_signal::TerminalReply::GateAcquired(acquired) => {
             assert_eq!(
                 acquired.prompt_state,
                 terminal_signal::PromptState::Dirty {
@@ -445,7 +445,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     assert!(
         matches!(
             rejected,
-            terminal_signal::TerminalEvent::InjectionRejected(terminal_signal::InjectionRejected {
+            terminal_signal::TerminalReply::InjectionRejected(terminal_signal::InjectionRejected {
                 reason: terminal_signal::InjectionRejectionReason::DirtyPrompt,
                 ..
             })
@@ -489,7 +489,7 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
         .read_signal_event()
         .expect("initial worker lifecycle snapshot arrives");
     match snapshot {
-        terminal_signal::TerminalEvent::TerminalWorkerLifecycleSnapshot(snapshot) => {
+        terminal_signal::TerminalReply::TerminalWorkerLifecycleSnapshot(snapshot) => {
             assert!(
                 snapshot.observations.iter().any(|observation| matches!(
                     observation,
@@ -505,7 +505,7 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
 
     let mut viewer = daemon.open_attach_stream();
     let event = SocketReplyReader::new(&mut subscription)
-        .read_signal_event()
+        .read_signal_subscription_event()
         .expect("worker lifecycle delta arrives");
     assert!(
         matches!(

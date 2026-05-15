@@ -491,13 +491,13 @@ impl TerminalCellConnection {
             terminal_signal::TerminalRequest::SubscribeTerminalWorkerLifecycle(subscription) => {
                 self.stream_signal_worker_lifecycle(subscription)
             }
-            terminal_signal::TerminalRequest::TerminalWorkerLifecycleRetraction(_) => {
-                // Subscription retraction acknowledges via a generic
-                // accept; terminal-cell's per-connection model treats
-                // a closed connection as the natural stream-close. No
-                // dedicated reply variant in TerminalReply for this
-                // yet.
-                Ok(())
+            terminal_signal::TerminalRequest::TerminalWorkerLifecycleRetraction(token) => {
+                let ack = terminal_signal::TerminalDetached {
+                    terminal: token.terminal,
+                    generation: terminal_signal::TerminalGeneration::new(1),
+                    reason: terminal_signal::TerminalDetachmentReason::HumanRequested,
+                };
+                SocketReplyWriter::new(&mut self.stream).write_signal_event(ack.into())
             }
             payload => {
                 let event = self.signal_event(payload)?;

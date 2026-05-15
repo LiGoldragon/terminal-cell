@@ -409,6 +409,19 @@ where
         }
     }
 
+    pub fn read_signal_subscription_event(
+        &mut self,
+    ) -> io::Result<SignalTerminalStreamEvent> {
+        let frame = self.read_signal_frame()?;
+        match frame.into_body() {
+            SignalFrameBody::SubscriptionEvent { event, .. } => Ok(event),
+            other => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("expected signal subscription event, got {other:?}"),
+            )),
+        }
+    }
+
     fn read_signal_frame(&mut self) -> io::Result<SignalTerminalFrame> {
         let mut length_bytes = [0_u8; 4];
         self.reader.read_exact(&mut length_bytes)?;

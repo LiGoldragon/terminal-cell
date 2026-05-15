@@ -783,7 +783,7 @@ dependencies = [
 [[package]]
 name = "signal-persona-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#c0b518bf4bf857ead48e748ab2c431895559fb84"
+source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#50809a8ce77ad684e3b34dcf376733564b632ae5"
 dependencies = [
  "nota-codec",
  "rkyv",
