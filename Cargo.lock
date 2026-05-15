@@ -459,6 +459,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -731,9 +737,10 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 [[package]]
 name = "signal-core"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-core.git#aa7a0d93ca8f516557c2be789f8556a7aec66da7"
+source = "git+https://github.com/LiGoldragon/signal-core.git#f341c54fa6e898e2fbf071c271212f8f711c3448"
 dependencies = [
  "nota-codec",
+ "paste",
  "rkyv",
  "thiserror 2.0.18",
 ]

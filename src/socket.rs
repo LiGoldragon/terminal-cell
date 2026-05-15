@@ -1,8 +1,22 @@
 use std::io::{self, Read, Write};
 
 use signal_core::{
-    FrameBody as SignalFrameBody, Reply as SignalReply, Request as SignalRequest, SignalVerb,
+    ExchangeIdentifier, ExchangeLane, ExchangeSequence, FrameBody as SignalFrameBody, NonEmpty,
+    Operation, Reply as SignalReply, Request as SignalRequest, RequestOutcome, SessionEpoch,
+    SignalVerb, SubReply,
 };
+
+/// terminal-cell's socket is a synchronous request/reply protocol with
+/// no handshake-negotiated exchange. The exchange identifier is
+/// degenerate but still required by the new [`SignalFrameBody`] shape
+/// per `/177` §3. A future cutover wires real handshake + lane tracking.
+fn synthetic_exchange() -> ExchangeIdentifier {
+    ExchangeIdentifier::new(
+        SessionEpoch::new(0),
+        ExchangeLane::Connector,
+        ExchangeSequence::first(),
+    )
+}
 use signal_persona_terminal::{
     Frame as SignalTerminalFrame, TerminalEvent as SignalTerminalEvent,
     TerminalRequest as SignalTerminalRequest,
@@ -156,9 +170,13 @@ where
             )
         })?;
         match frame.into_body() {
-            SignalFrameBody::Request(SignalRequest::Operation { verb, payload }) => Ok(
-                SocketRequest::Signal(SignalSocketRequest::new(verb, payload)),
-            ),
+            SignalFrameBody::Request { request, .. } => {
+                let operation = request.operations.into_head();
+                Ok(SocketRequest::Signal(SignalSocketRequest::new(
+                    operation.verb,
+                    operation.payload,
+                )))
+            }
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("expected signal request operation, got {other:?}"),
@@ -273,9 +291,12 @@ where
         verb: SignalVerb,
         request: SignalTerminalRequest,
     ) -> io::Result<()> {
-        let frame = SignalTerminalFrame::new(SignalFrameBody::Request(
-            SignalRequest::unchecked_operation(verb, request),
-        ));
+        let frame = SignalTerminalFrame::new(SignalFrameBody::Request {
+            exchange: synthetic_exchange(),
+            request: SignalRequest::from_operations(NonEmpty::single(Operation::new(
+                verb, request,
+            ))),
+        });
         let bytes = frame.encode_length_prefixed().map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -367,7 +388,16 @@ where
     pub fn read_signal_event(&mut self) -> io::Result<SignalTerminalEvent> {
         let frame = self.read_signal_frame()?;
         match frame.into_body() {
-            SignalFrameBody::Reply(SignalReply::Operation(event)) => Ok(event),
+            SignalFrameBody::Reply { reply, .. } => {
+                let sub_reply = reply.per_operation.into_head();
+                match sub_reply {
+                    SubReply::Ok { payload, .. } => Ok(payload),
+                    other => Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("expected ok sub-reply for signal event, got {other:?}"),
+                    )),
+                }
+            }
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
                 format!("expected signal reply operation, got {other:?}"),
@@ -498,7 +528,17 @@ where
     }
 
     pub fn write_signal_event(&mut self, event: SignalTerminalEvent) -> io::Result<()> {
-        let frame = SignalTerminalFrame::new(SignalFrameBody::Reply(SignalReply::operation(event)));
+        let reply = SignalReply {
+            outcome: RequestOutcome::Completed,
+            per_operation: NonEmpty::single(SubReply::Ok {
+                verb: SignalVerb::Subscribe,
+                payload: event,
+            }),
+        };
+        let frame = SignalTerminalFrame::new(SignalFrameBody::Reply {
+            exchange: synthetic_exchange(),
+            reply,
+        });
         let bytes = frame.encode_length_prefixed().map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
