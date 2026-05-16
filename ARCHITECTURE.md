@@ -1,72 +1,57 @@
 # terminal-cell - architecture
 
-*Durable terminal session experiments. The live viewer uses an abduco-like byte
-pump while transcript and control state remain side-channel concerns.*
+*Daemon-owned child PTY with two clearly separated wire planes: a Signal
+control plane and a raw byte data plane. Viewer latency lives off the actor
+mailbox; transcript work lives off the viewer path.*
 
 ---
 
-## 0 - Status
+## 0 · TL;DR
 
-`terminal-cell` explores one narrow capability: a long-lived daemon owns a child
-process group and PTY while disposable frontends attach, detach, inject bytes,
-capture transcript, resize, and observe exit.
+A `terminal-cell-daemon` owns one child process group and one PTY for the
+lifetime of the session. Around that PTY sit two distinct Unix listeners:
 
-The current implementation proves several useful pieces:
+```mermaid
+flowchart LR
+    cli["terminal-cell-{send,capture,wait,exit,resize}<br/>+ persona-terminal control"]
+    viewer["terminal-cell-view (visible viewer)"]
+    daemon["terminal-cell-daemon"]
+    pty["child PTY"]
+    scriber["TranscriptScriber<br/>(bounded queue, drop-oldest)"]
+    transcript["TerminalTranscript<br/>(append-only truth)"]
+    subscribers["transcript subscribers"]
 
-- daemon-owned child PTY lifecycle;
-- real Pi launch under Ghostty;
-- transcript capture;
-- programmatic input injection;
-- a PTY-writer input gate for non-interleaved Persona injection;
-- child-exit observation;
-- resize plumbing;
-- an attach stream that carries raw viewer bytes in both directions;
-- explicit attach accept/reject before raw replay;
-- durable detach and reattach;
-- single active attached viewer authority;
-- headless daemon resize control;
-- live-session selection that skips stale runtime directories;
-- transitional direct `signal-persona-terminal` control frames for prompt
-  patterns, input gates, write injection, capture/resize, and worker lifecycle
-  subscription;
-- behavioral witnesses for slow transcript subscribers, reattach, stale session
-  rejection, and attached input under output load.
-
-The previous live-viewer path was rejected after manual Pi testing in Ghostty
-showed slow, dropped, and eventually stalled keyboard interaction:
-
-```text
-Ghostty tty -> terminal-cell-view -> socket protocol -> daemon -> child PTY
-child PTY -> actor/transcript/subscription -> socket protocol -> terminal-cell-view -> Ghostty tty
+    cli -- "control.sock: Signal frames + byte-tag CLI" --> daemon
+    viewer == "data.sock: raw bidirectional bytes" ==> daemon
+    daemon -- "writes via TerminalInputWriter (input gate)" --> pty
+    pty -- "reads via PTY output thread" --> daemon
+    daemon -- "viewer write returns immediately" --> viewer
+    daemon -. "notify (drop-oldest)" .-> scriber
+    scriber -- "append + broadcast" --> transcript
+    transcript --> subscribers
 ```
 
-That path puts terminal bytes behind application-level relay, transcript
-subscription, and actor/control-plane scheduling. It is the wrong boundary for
-human TUI interaction.
+The control plane is `signal-persona-terminal`. The data plane is a raw byte
+pump with only enough framing for attach handshake, detach, resize, exit, and
+explicit accept/reject. Neither plane mode-shifts into the other: an attach
+request on `control.sock` is rejected with a typed `ATTACH_REJECTED` reply
+before any byte transport begins; any non-attach request on `data.sock` is
+rejected with the symmetric reply.
 
-The current live path is:
+Three properties are load-bearing and tested with witnesses:
 
-```text
-Ghostty tty <-> attach pump <-> daemon byte pump <-> child PTY
-                                  |
-                                  +-> transcript recorder
-                                  +-> observer parser
-                                  +-> actor/control plane
-```
+- **Viewer latency.** Live viewer bytes (`data.sock`) never traverse a Kameo
+  actor mailbox. PTY output reaches the viewer through `ViewerFanout`, a
+  blocking worker that writes and returns; transcript work happens on a
+  separate `TranscriptScriber` worker fed by a bounded notification queue.
+- **Transcript decoupling.** A slow transcript subscriber cannot back pressure
+  into the viewer path. The scriber's queue drops the oldest pending bytes
+  under overflow rather than blocking the viewer fanout.
+- **Plane isolation.** `control.sock` and `data.sock` are separate Unix
+  listeners bound at daemon startup; the daemon rejects cross-plane traffic on
+  each socket with a typed reply before any bytes cross.
 
-The live attach path moves raw content bytes between the viewer terminal and
-the child PTY. Minimal framing for content, attach, detach, resize, exit, and
-lifecycle is allowed. Attach is framed only long enough to return explicit
-accept/reject; raw transcript replay starts after acceptance. Terminal escape
-interpretation, transcript replay, screen projection, actor mailbox delivery,
-and wait conditions stay off the hot path.
-
-Abduco is the concrete reference. Its client and server move `MSG_CONTENT`
-packets between stdin/stdout, a Unix socket, and the child PTY; the other
-packet kinds only describe attach, detach, resize, exit, and pid. It operates
-on the raw byte stream and does not parse terminal escape sequences.
-
-## 1 - Ownership
+## 1 · Ownership
 
 The daemon owns the child process group, PTY, sockets, and session lifecycle.
 Command-line tools and GUI frontends are clients.
@@ -75,49 +60,27 @@ This component has no Sema database. A running session is discoverable through
 its runtime directory under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
 That directory holds **two distinct listeners** — `control.sock` and
 `data.sock` — alongside pid files, `session.env`, `session.name`, and
-diagnostic logs. `control.sock` carries length-prefixed
-`signal-persona-terminal` frames and the byte-tag CLI protocol at mode 0600;
-`data.sock` carries raw viewer bytes wrapped in only the minimal attach,
-detach, resize, exit, and accept/reject framing needed to move bytes between
-viewer terminal and child PTY at mode 0600. The list and rename tools inspect
-or update those files; they are a local convenience registry, not durable
-system truth.
+diagnostic logs. The list and rename tools inspect or update those files; they
+are a local convenience registry, not durable system truth.
 
-The daemon accepts two control encodings during the transition: the older
-byte-tag CLI protocol used by local command-line tools, and length-prefixed
-`signal-persona-terminal` frames. **The production control plane is
-`signal-persona-terminal`** — terminal-cell speaks signal-persona-terminal
-directly on the control socket. The byte-tag CLI protocol stays as a
-transitional convenience for local command-line tools. Production Persona
-control still flows through `persona-terminal` (which owns the registry,
-prompt-pattern lifecycle, input-gate policy, injection decision, and
-component Sema state); the control wire between persona-terminal and
-terminal-cell is Signal. Neither encoding is the live attached-viewer
-byte path — that stays raw for latency.
+### 1.1 · Control plane
 
-**Control socket mode**: 0600, internal (only the engine's `persona`
-user can connect). System-specialist may revise when production
-deployment lands.
+`control.sock` (mode 0600) is the daemon's Signal endpoint. It accepts
+length-prefixed `signal-persona-terminal` frames and the byte-tag CLI
+protocol used by local command-line tools. Every effect that lives across
+time — prompt-pattern registration, input-gate leasing, write injection,
+transcript capture, resize, worker-lifecycle subscription, wait conditions —
+arrives here.
 
-**Production socket split**: every terminal cell exposes two sockets.
-`control.sock` carries privileged, length-prefixed
-`signal-persona-terminal` frames for prompt patterns, input gates, write
-injection, worker lifecycle, capture, resize, and other control-plane effects.
-`data.sock` carries the attached-viewer byte stream: keyboard bytes, PTY output,
-resize notices, attach/detach/exit framing, and explicit accept/reject. The
-data socket is never a Signal socket and never an actor mailbox. A production
-cell must not mode-shift one socket between these roles.
+Production Persona control flows through `persona-terminal`, which owns the
+registry, prompt-pattern lifecycle, input-gate policy, injection decision, and
+component Sema state. The wire between `persona-terminal` and `terminal-cell`
+is Signal on this control socket. Local command-line clients
+(`terminal-cell-send`, `-capture`, `-wait`, `-exit`, `-resize`) speak the
+byte-tag protocol on the same socket because they exist for human and test
+ergonomics. Both encodings are control-plane only.
 
-The production shape belongs in a higher-level `persona-terminal` supervisor.
-`terminal-cell` remains the low-level PTY owner for one terminal cell. The
-supervisor owns the global terminal registry: one well-known daemon socket,
-named terminal cells, a Sema-owned session table, per-cell attach/control
-handles, lifecycle health, and policy decisions about which viewer adapter
-opens a visible terminal. `persona-terminal` talks through the
-`signal-persona-terminal` contract; it does not move Persona messages or infer
-harness quota meaning from terminal bytes.
-
-The clean production split is:
+The stack the cell sits inside:
 
 ```text
 persona-terminal        registry, names, Sema state, lifecycle policy
@@ -128,237 +91,368 @@ persona-system          OS facts such as focus and window state
 persona-harness         harness-specific prompts, usage probes, quota parsing
 ```
 
-This repository may seed the `terminal-cell` primitive inside that stack, but
-it does not become the global `persona-terminal` registry by accretion.
+### 1.2 · Data plane
 
-The live byte pump owns the latency-sensitive path:
-
-```text
-attach stdin  -> attached Unix stream -> daemon socket -> child PTY
-attach stdout <- attached Unix stream <- daemon socket <- child PTY
-```
-
-Human input reaches the PTY through the writer port, not through the
-`TerminalCell` actor mailbox:
+`data.sock` (mode 0600) is the raw byte plane. It accepts an `Attach` request,
+returns an explicit accept or reject, then carries raw bidirectional bytes
+between the viewer terminal and the child PTY plus minimal framing for resize,
+detach, and exit. Terminal escape interpretation, transcript replay, screen
+projection, actor mailbox delivery, and wait conditions stay off this path.
 
 ```text
-terminal-cell-view stdin
-  -> attached Unix stream
-  -> TerminalCellConnection::attach_viewer
-  -> TerminalInputPort
-  -> TerminalInputWriter + TerminalInputGate
-  -> child PTY writer
+attach stdin  -> data.sock -> TerminalInputPort -> TerminalInputWriter -> child PTY
+attach stdout <- data.sock <- ViewerFanout       <- PTY output thread  <- child PTY
 ```
 
-That shape is deliberate. The attached GUI terminal is latency-sensitive, and
-the user must feel as if the keyboard is talking to the child TUI directly. The
-writer port keeps one serialized PTY writer and one gate for human and
-programmatic input, while avoiding Kameo mailbox scheduling, transcript replay,
-screen projection, and wait conditions on the live keyboard path.
+The attached viewer's keyboard bytes reach the PTY through `TerminalInputPort`
++ `TerminalInputWriter` (the writer plane that owns the input gate).
+Programmatic input enters the same `TerminalInputPort` with source provenance
+`Programmatic` instead of `Viewer`. One PTY writer; one gate; two byte
+sources.
 
-Programmatic input writes through the same `TerminalInputPort`. The difference
-is source provenance (`Viewer` or `Programmatic`), not a different PTY writer.
+The viewer write path is a blocking worker (`ViewerFanout`) sitting beside the
+PTY output reader. It writes PTY output to the active viewer, then notifies
+the transcript scriber over a bounded notification channel and returns. It
+does not wait on transcript append, actor mailbox delivery, screen projection,
+or subscribers.
 
-Actors remain the right shape for state that lives across time, but they do not
-render the human session or carry live keyboard bytes. Actor-owned concerns are
-lifecycle, metadata, health, resize authority, child exit, waiters, transcript
-append, and Persona control decisions.
+Abduco is the concrete reference. Its client and server move `MSG_CONTENT`
+packets between stdin/stdout, a Unix socket, and the child PTY; the other
+packet kinds only describe attach, detach, resize, exit, and pid. It operates
+on the raw byte stream and does not parse terminal escape sequences.
 
-The `TerminalCell` actor is also the supervisor-observation root for the
-blocking workers around it. `TerminalInputWriter`, `TerminalOutputFanout`, the
-PTY output reader, the child-exit watcher, the daemon socket accept loop, and
-the attach connection pump stay blocking workers because they own OS I/O or
-latency-sensitive byte movement. They report typed `TerminalWorkerLifecycle`
-start/stop events to the actor, so worker failure or shutdown becomes
+### 1.3 · Plane isolation
+
+The two sockets do not mode-shift between roles. The daemon's control listener
+rejects an `Attach` request with a typed `ATTACH_REJECTED` reply before any
+byte transport begins; the data listener rejects every non-`Attach` request
+with the symmetric reply. A misrouted client receives a typed wire error, not
+a stuck stream.
+
+### 1.4 · Workers and the actor mailbox
+
+The `TerminalCell` Kameo actor owns state that lives across time: transcript
+truth, worker-lifecycle observation, transcript and worker-lifecycle
+subscribers, resize authority, child-exit waiters, and transcript-text
+waiters.
+
+Blocking planes are named workers around the actor: `TerminalInputWriter`,
+`ViewerFanout`, `TranscriptScriber`, the PTY output reader, the child-exit
+watcher, the daemon socket accept loops (control and data), and the attach
+connection pump. Each worker reports typed `TerminalWorkerLifecycle`
+start/stop events to the actor so worker failure or shutdown becomes
 actor-observable state without putting every terminal byte through the actor
 mailbox.
 
-Transcript recording observes PTY output as a side effect. A slow transcript
-sink records backpressure or loss; it does not slow the attached viewer.
+The transcript fanout splits cleanly:
 
-The PTY write path also owns the input gate. Persona can temporarily close the
-gate to attached human input, write an injected byte sequence, then reopen the
-gate. This is writer arbitration, not terminal semantics: blocked human bytes
-are either buffered in order or rejected with an explicit gate state, while the
-injected bytes are written contiguously to the child PTY. The gate must sit at
-the PTY writer, not in the viewer, so every frontend obeys the same rule.
+- **`ViewerFanout`** — real-time. PTY reader hands bytes to the active viewer
+  write and returns to the read loop. It carries no transcript work.
+- **`TranscriptScriber`** — decoupled. Receives a notification from
+  `ViewerFanout` over a bounded queue and appends to the transcript
+  asynchronously. The queue applies drop-oldest discipline so a slow scriber
+  sheds load instead of pushing backpressure into the viewer path.
 
-Transitional Signal `AcquireInputGate` returns prompt state when a prompt
-pattern id is supplied. Transitional Signal `WriteInjection` rejects
-dirty-prompt leases by default. The prompt pattern registry in this repo is a
-witness aid for safe injection until `persona-terminal` fully owns the
-production control plane; literal and regex patterns are suffix checks, and
-trailing bytes after the last match make the prompt dirty. It does not make
-terminal-cell a harness semantic parser or the production Persona terminal
-endpoint.
+### 1.5 · Input gate
 
-One terminal cell has at most one active attached viewer. The active viewer is
-the only human byte source for the cell. A second attach request while a viewer
-is active receives an explicit rejection before replay or live bytes can cross.
-When the active viewer disconnects, the daemon keeps the child PTY alive and a
-later viewer can reattach, receive transcript replay, and continue sending
-input.
+The PTY write path owns the input gate. Persona can temporarily close the
+gate to attached human input, write an injected byte sequence, then reopen
+the gate. This is writer arbitration, not terminal semantics: blocked human
+bytes are either buffered in order or rejected with an explicit gate state,
+while injected bytes are written contiguously to the child PTY. The gate
+sits at the PTY writer, not in the viewer, so every frontend obeys the same
+rule.
 
-## 2 - Current Components
+`AcquireInputGate` returns prompt state when a prompt pattern id is supplied.
+`WriteInjection` rejects dirty-prompt leases by default. The prompt-pattern
+registry in this repo is a witness aid for safe injection while
+`persona-terminal` evolves the production control surface; literal and regex
+patterns are suffix checks, and trailing bytes after the last match make the
+prompt dirty. It does not make `terminal-cell` a harness semantic parser.
 
-These are the checked-in components:
+### 1.6 · Single active viewer
 
-- `TerminalCell` - Kameo actor that owns lifecycle, transcript, resize
-  authority, diagnostic subscribers, exit state, and waiters.
-- `TerminalTranscript` - append-only output log sequenced by
+One terminal cell has at most one active attached viewer. The active viewer
+is the only human byte source for the cell. A second attach request while a
+viewer is active receives an explicit rejection before replay or live bytes
+can cross. When the active viewer disconnects, the daemon keeps the child
+PTY alive; a later viewer can reattach, receive transcript replay, and
+continue sending input.
+
+### 1.7 · Subscription lifecycle
+
+Subscriptions over `control.sock` use a four-step lifecycle:
+
+1. **Subscribe.** Client sends a typed subscribe request (e.g.
+   `SubscribeTranscript`, `SubscribeTerminalWorkerLifecycle`).
+2. **Initial state.** Server emits the current state as the first event.
+3. **Deltas.** Server emits typed events as state changes.
+4. **Close.** Client sends a typed retract/close request for the subscription
+   token; server emits a final acknowledgement event and the stream ends.
+
+Raw socket close is not semantic protocol. A consumer that wants to stop
+receiving events sends the retract; the server's final event is the visible
+end of the stream.
+
+## 2 · Components
+
+- `TerminalCell` — Kameo actor that owns transcript truth, worker-lifecycle
+  observation, transcript and worker-lifecycle subscribers, resize authority,
+  child-exit state, and waiters.
+- `TerminalTranscript` — append-only output log sequenced by
   `TerminalSequence`.
-- `TerminalOutputPort` - typed ingress to the PTY-output fanout used by the
+- `TerminalOutputPort` — typed ingress to the viewer fanout used by the
   daemon attach path.
-- `TerminalOutputFanout` - non-actor thread that writes PTY output to attached
-  viewer before sending the same bytes to the transcript actor. **Transitional**:
-  the current shape serializes viewer write with transcript append on the same
-  fanout path. The destination splits this into two components:
-    - `ViewerFanout` - real-time path. PTY reader hands bytes to the attached
-      viewer write and returns to the read loop immediately. Carries no
-      transcript work.
-    - `TranscriptScriber` - decoupled path. Receives a notification from
-      `ViewerFanout` and appends to the transcript asynchronously. Owns a
-      bounded queue with overflow-drop-oldest discipline so a slow scriber
-      sheds load instead of pushing backpressure into the viewer path.
-- `TerminalViewerLease` - active-viewer authority returned by the output fanout
-  and released when the attach stream ends.
-- `TranscriptSubscription` - replay plus live delta receiver for diagnostics.
-- `ScreenProjection` - derived `vt100` snapshot over transcript bytes.
-- `TerminalInput` - raw bytes plus source provenance, written to the PTY.
-- `TerminalInputPort` - typed ingress to the PTY writer.
-- `TerminalInputWriter` - blocking PTY writer plane that owns the input gate
+- `ViewerFanout` — blocking worker. Writes PTY output bytes to the active
+  attached viewer and returns. Notifies `TranscriptScriber` over a bounded
+  notification channel. Carries no transcript append work itself.
+- `TranscriptScriber` — blocking worker. Receives `TranscriptNotice` over a
+  bounded queue, appends bytes to the transcript via the actor, and emits
+  transcript-delta broadcasts. The queue drops the oldest pending notice
+  under overflow so a slow scriber sheds load rather than blocking
+  `ViewerFanout`.
+- `TerminalViewerLease` — active-viewer authority returned by the viewer
+  fanout and released when the attach stream ends.
+- `TranscriptSubscription` — replay plus live delta receiver for diagnostics.
+- `ScreenProjection` — derived `vt100` snapshot over transcript bytes.
+- `TerminalInput` — raw bytes plus source provenance, written to the PTY.
+- `TerminalInputPort` — typed ingress to the PTY writer.
+- `TerminalInputWriter` — blocking PTY writer plane that owns the input gate
   and serializes all human and programmatic bytes.
-- `TerminalWorkerLifecycle` / `TerminalWorkerObservation` - actor-recorded
-  lifecycle state for blocking PTY and daemon workers.
-- `TerminalInputGateLease` - writer-side lease proving human input is closed
+- `TerminalWorkerLifecycle` / `TerminalWorkerObservation` — actor-recorded
+  lifecycle state for blocking PTY, fanout, scriber, and daemon workers.
+- `TerminalInputGateLease` — writer-side lease proving human input is closed
   before a programmatic injection sequence.
-- `TerminalInputGateRelease` - writer-side release record naming the lease and
+- `TerminalInputGateRelease` — writer-side release record naming the lease and
   how many held human bytes were flushed when the gate reopened.
-- Transitional Signal prompt pattern control - daemon-side witness registry
-  used to check whether the transcript currently ends in a registered
-  terminal-ready shape. Production ownership belongs in `persona-terminal`.
-- Transitional Signal worker lifecycle subscription - pushed initial worker
-  snapshot plus live worker lifecycle deltas over `signal-persona-terminal`.
-  Production ownership belongs in `persona-terminal`.
-- `TerminalExit` - recorded child status.
-- `TerminalCellSocketClient` - Unix-socket client used by command-line tools
-  and viewers.
-- `terminal-cell-daemon` - daemon that owns the `TerminalCell` actor and serves
-  socket requests.
-- `terminal-cell-send` / `capture` / `wait` / `exit` - thin command-line
-  clients.
-- `terminal-cell-resize` - thin resize client that can resize the child PTY
-  without an attached viewer.
-- `terminal-cell-session-select` - runtime-directory selector used by reattach
-  tooling to choose only live daemon-backed sessions.
-- `terminal-cell-view` - interactive attach client. It sends one attach request,
-  pumps stdin/stdout over the attached Unix stream, and forwards terminal
-  `SIGWINCH` resize events to the daemon.
-- `agent-terminal-fixture` - deterministic agent-like terminal process used by
-  stateful witnesses.
-- `output-flood-fixture` - deterministic high-volume output process used to
+- Prompt-pattern control — daemon-side registry used to check whether the
+  transcript currently ends in a registered terminal-ready shape. Production
+  ownership of pattern lifecycle belongs in `persona-terminal`.
+- Worker-lifecycle subscription — pushed initial worker snapshot plus live
+  worker-lifecycle deltas over `signal-persona-terminal`.
+- `TerminalExit` — recorded child status.
+- `TerminalCellSocketClient` — Unix-socket client used by command-line tools
+  and viewers. Exposes `new(control_socket, data_socket)` for full clients and
+  `for_control_only(control_socket)` for clients that never attach (capture,
+  send, wait, exit, resize, resolve).
+- `terminal-cell-daemon` — daemon that owns the `TerminalCell` actor and
+  binds both `control.sock` and `data.sock` listeners.
+- `TerminalControlPlaneLoop` / `TerminalControlConnection` — accept loop and
+  connection handler for the control listener. Rejects `Attach` requests
+  with `ATTACH_REJECTED_REPLY`.
+- `TerminalDataPlaneLoop` / `TerminalDataConnection` — accept loop and
+  connection handler for the data listener. Rejects every non-`Attach`
+  request with `ATTACH_REJECTED_REPLY`.
+- `terminal-cell-send` / `-capture` / `-wait` / `-exit` / `-resize` — thin
+  command-line clients that take `--control-socket`.
+- `terminal-cell-session-select` — runtime-directory selector that rejects a
+  directory missing either `control.sock` or `data.sock` or any owning
+  daemon process.
+- `terminal-cell-view` — interactive attach client. Takes both
+  `--control-socket` and `--data-socket`, sends one attach request, pumps
+  stdin/stdout over the data stream, and forwards `SIGWINCH` to the daemon.
+- `agent-terminal-fixture` — deterministic agent-like terminal process used
+  by stateful witnesses.
+- `output-flood-fixture` — deterministic high-volume output process used to
   prove attached input still reaches the child under output load.
 
-## 3 - Constraints
+## 3 · Constraints
 
-- A terminal cell owns one child process group and PTY for the lifetime of the
-  session.
-- Output emitted while no viewer is attached is still available to transcript
-  capture.
-- A late viewer may receive transcript replay before live attach, but replay is
-  not the live display path.
-- Closing a viewer detaches only that viewer; it does not end the daemon-owned
-  child PTY.
-- A terminal cell admits one active attached viewer at a time.
-- A rejected second viewer cannot send input to the child PTY.
-- A rejected second viewer receives an explicit attach rejection before replay
-  or raw output bytes.
-- Human keyboard bytes and Persona programmatic input write to the same child
-  PTY input path.
-- Live human keyboard bytes enter `TerminalInputPort` directly from the attach
-  connection; they do not go through a Kameo actor mailbox.
-- Persona injection can acquire the PTY input gate so injected bytes are not
-  interleaved with human keyboard bytes.
-- Transitional Signal `AcquireInputGate` returns prompt state when a prompt
-  pattern id is supplied.
-- Transitional Signal `WriteInjection` rejects dirty-prompt leases by default.
-- Direct `signal-persona-terminal` handling in this repo is witness code. The
-  production Persona Signal endpoint is `persona-terminal`.
-- Production cells expose separate `control.sock` and `data.sock` sockets.
-  The control socket carries Signal control frames only. The data socket
-  carries attached-viewer bytes only.
-- A production client connected to `control.sock` never carries live viewer
-  bytes. A production client connected to `data.sock` never sends Signal
-  control frames.
-- There is no production single-socket mode-shift path.
-- The input gate is writer arbitration only; it does not parse slash commands
-  or infer harness prompt state.
-- The live attach path is a raw byte transport with only minimal session
-  framing.
+Each line names an obligation the daemon must satisfy; each load-bearing
+constraint has a witness in §4. The constraints split into groups for the
+reader; the witness section names the test that proves each.
+
+### 3.1 · Plane isolation
+
+- `control.sock` and `data.sock` are separate Unix listeners bound at daemon
+  startup; the daemon binds both before writing `SessionRegistration` or
+  enabling client traffic.
+- `control.sock` accepts Signal frames and the byte-tag CLI protocol; it
+  rejects every `Attach` request with `ATTACH_REJECTED_REPLY` before any
+  byte transport begins.
+- `data.sock` accepts only an `Attach` request followed by the raw byte
+  stream; it rejects every non-`Attach` request with `ATTACH_REJECTED_REPLY`.
+- A misrouted client receives a typed wire rejection, not a stuck stream or
+  silent confusion.
+- There is no single-socket mode-shift path between control and data roles.
+- The daemon applies mode 0600 to both `control.sock` and `data.sock`
+  immediately after bind.
+
+### 3.2 · Data-plane latency
+
+- The live attach path is a raw byte transport with only minimal attach,
+  detach, resize, exit, and accept/reject framing.
+- Raw viewer bytes never traverse a Kameo actor mailbox.
+- Live human keyboard bytes enter `TerminalInputPort` directly from the
+  attach connection; they do not go through the actor mailbox.
 - The live attach path does not wait on actor handlers, transcript append,
   screen projection, waiters, or Persona decisions.
-- A slow transcript subscriber does not block the attached viewer's output.
+- Viewer attach round-trip latency stays sub-200ms under transcript and
+  worker load; an actor `ask` on the data-plane path would not meet that
+  budget.
+- Signal control on `control.sock` does not block viewer attach on
+  `data.sock`. Viewer attach completes in under 10ms regardless of pending
+  control frames.
+- High-volume child output still reaches the attached viewer while
+  transcript subscribers are slow.
+- High-volume child output does not starve attached input: keyboard bytes
+  sent through the attach stream still reach the child PTY promptly while
+  output is flowing.
+
+### 3.3 · Transcript decoupling
+
+- Transcript append is decoupled from viewer write. `ViewerFanout` writes
+  the active viewer and notifies `TranscriptScriber`; it does not append
+  transcript itself.
+- `TranscriptScriber` reads notifications from a bounded queue and drops
+  the oldest pending notice on overflow. The scriber never back-pressures
+  into the viewer path.
 - A slow transcript subscriber does not block the attached viewer. Witness:
-  1000 PTY output bytes arrive at the viewer in under 100ms despite 50ms per
-  transcript append.
-- Signal control never blocks viewer attach. Witness: viewer attach completes
-  in under 10ms regardless of pending control frames.
-- High-volume child output still reaches the attached viewer while transcript
-  subscribers are slow.
-- High-volume child output does not starve attached input. Keyboard bytes sent
-  through the attach stream still reach the child PTY promptly while output is
-  flowing.
-- Attached viewers push terminal resize events to the daemon; a PTY must not
-  keep drawing at the size from initial attach after the GUI window changes.
-- Resize is also a daemon control request; an attached viewer is not required
-  to resize the child PTY.
-- Reattach tooling selects only live sessions: a runtime directory with a socket
-  but no live daemon process is stale and must be skipped.
-- Terminal input is raw bytes; slash commands are harness input, not terminal
-  owner semantics.
-- Blocking PTY reads and writes are isolated from actor handlers.
-- Blocking workers report typed start/stop lifecycle events to the
-  `TerminalCell` actor. They are supervised by observation: failures become
-  queryable terminal state instead of silent thread death.
-- Daemon-owned blocking planes, including socket accept and attach pumping,
-  use the same worker lifecycle channel instead of inventing a separate
-  monitoring path.
-- The daemon applies mode 0600 to its control socket immediately after bind.
-- CLIs are daemon clients; they do not own the runtime or transcript.
+  1000 PTY output bytes arrive at the viewer in under 100ms despite 50ms
+  per transcript append.
+- A slow transcript subscriber does not block transcript append into the
+  scriber's queue.
+
+### 3.4 · Viewer authority
+
+- A terminal cell admits one active attached viewer at a time.
+- A second attach request while a viewer is active receives an explicit
+  attach rejection before any replay or live output bytes cross.
+- A rejected second viewer cannot send input to the child PTY.
+- Closing the active viewer detaches only that viewer; it does not end the
+  daemon-owned child PTY.
+- Output emitted while no viewer is attached is still available to
+  transcript capture.
+- A late viewer may receive transcript replay before live attach; replay is
+  not the live display path.
+
+### 3.5 · Input gate
+
+- Human keyboard bytes and Persona programmatic input write to the same
+  child PTY input path through `TerminalInputPort`.
+- Persona injection acquires the PTY input gate; injected bytes are not
+  interleaved with human keyboard bytes.
+- The input gate is writer arbitration only; it does not parse slash
+  commands or infer harness prompt state.
+- `AcquireInputGate` returns prompt state when a prompt pattern id is
+  supplied.
+- `WriteInjection` rejects dirty-prompt leases by default.
+- The input gate serializes two concurrent harness lease attempts:
+  the second acquire receives a typed rejection while the first lease is
+  active.
+
+### 3.6 · Lifecycle, resize, exit
+
+- A terminal cell owns one child process group and PTY for the lifetime of
+  the session.
+- Attached viewers push terminal resize events to the daemon over the data
+  socket; a PTY does not keep drawing at the size from initial attach after
+  the GUI window changes.
+- Resize is also a control-plane request; an attached viewer is not
+  required to resize the child PTY.
+- Reattach tooling selects only live sessions: a runtime directory missing
+  either `control.sock` or `data.sock`, or whose owning daemon process is
+  gone, is stale and is skipped.
 - Child exit is pushed session state; clients do not poll process tables.
-- GUI witness readiness is a pushed event from the attached view process, not a
-  polling sleep.
+- GUI witness readiness is a pushed event from the attached view process,
+  not a polling sleep.
 
-## 4 - Witnesses
+### 3.7 · Subscriptions
 
-Current useful witnesses:
+- Subscriptions over `control.sock` emit current state as the first event,
+  then deltas as state changes.
+- Subscription close is a typed retract/close request on the same control
+  socket; the server emits a final acknowledgement event and the stream
+  ends. Raw socket close is not semantic protocol.
 
-- `detached_output_is_replayed_to_late_subscriber`
-- `programmatic_input_uses_the_same_pty_input_port`
-- `screen_projection_is_derived_from_transcript`
-- `terminal_exit_is_observable_without_polling_the_child`
-- `terminal_worker_lifecycle_is_actor_observable`
-- `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
-- `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
-- `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
+### 3.8 · Workers and supervision
+
+- Blocking PTY reads and writes are isolated from actor handlers.
+- `ViewerFanout`, `TranscriptScriber`, `TerminalInputWriter`, the PTY
+  output reader, the child-exit watcher, the control/data accept loops,
+  and the attach connection pump report typed `TerminalWorkerLifecycle`
+  start/stop events to the `TerminalCell` actor.
+- Worker failure becomes queryable terminal state instead of silent thread
+  death.
+- Daemon accept loops use the same worker-lifecycle channel as the PTY
+  workers; there is no separate daemon monitoring path.
+
+### 3.9 · Wire and clients
+
+- The daemon's only typed-control surface is `signal-persona-terminal`. The
+  byte-tag CLI protocol is a local convenience for command-line clients;
+  Persona control is Signal.
+- CLIs are daemon clients; they do not own the runtime or transcript.
+- `TerminalCellSocketClient::for_control_only(control_socket)` returns
+  `io::ErrorKind::Unsupported` from `open_attach_stream`; a control-only
+  client cannot silently borrow the control socket as a data path.
+- Terminal input is raw bytes; slash commands are harness input, not
+  terminal-owner semantics.
+
+## 4 · Witnesses
+
+Each constraint above maps to at least one witness below. Test names read
+like the constraint they prove.
+
+### 4.1 · Plane isolation
+
+- `control_socket_rejects_attach_and_data_socket_rejects_non_attach`
+- `control_socket_mode_is_enforced_by_daemon` (asserts mode 0600 on both
+  listeners)
+- `daemon_binds_both_listeners_before_session_registration`
+- `session_selector_skips_newer_stale_sessions` (selector requires both
+  sockets and a live daemon)
+
+### 4.2 · Data-plane latency
+
+- `attached_viewer_input_round_trip_does_not_traverse_actor_mailbox`
+  (round trip < 200ms with transcript and worker load)
 - `attach_stream_is_raw_bidirectional_byte_path`
+- `attached_input_reaches_child_during_high_volume_output`
+
+### 4.3 · Transcript decoupling
+
+- `slow_transcript_subscriber_does_not_block_attached_viewer_output`
+  (1000 viewer bytes < 100ms despite 50ms-per-append scriber)
+- `slow_transcript_append_does_not_block_viewer_output`
+  (drop-oldest on the scriber's queue; viewer fanout returns immediately)
+
+### 4.4 · Viewer authority
+
+- `second_attached_viewer_is_rejected_while_first_viewer_is_active`
+- `detached_viewer_leaves_daemon_alive_and_late_viewer_receives_replay`
+- `detached_output_is_replayed_to_late_subscriber`
+
+### 4.5 · Input gate
+
 - `input_gate_holds_human_bytes_during_programmatic_injection`
 - `input_gate_serializes_two_harness_lease_attempts`
 - `signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes`
 - `signal_dirty_prompt_rejects_write_injection_by_default`
-- `signal_worker_lifecycle_subscription_streams_snapshot_then_deltas`
+- `programmatic_input_uses_the_same_pty_input_port`
+
+### 4.6 · Lifecycle, resize, exit
+
+- `terminal_exit_is_observable_without_polling_the_child`
 - `daemon_exposes_terminal_exit_status`
 - `daemon_resizes_the_owned_pty`
-- `detached_viewer_leaves_daemon_alive_and_late_viewer_receives_replay`
-- `second_attached_viewer_is_rejected_while_first_viewer_is_active`
 - `headless_resize_cli_resizes_without_attached_viewer`
-- `slow_transcript_subscriber_does_not_block_attached_viewer_output`
-- `attached_input_reaches_child_during_high_volume_output`
-- `attached_viewer_input_round_trip_does_not_traverse_actor_mailbox`
+- `agent_terminal_accepts_prompt_and_terminal_cell_reads_response`
+- `agent_terminal_usage_probe_is_prompt_input_not_terminal_semantics`
+- `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
+
+### 4.7 · Subscriptions
+
+- `signal_worker_lifecycle_subscription_streams_snapshot_then_deltas`
+- `screen_projection_is_derived_from_transcript`
+
+### 4.8 · Workers
+
+- `terminal_worker_lifecycle_is_actor_observable`
 - `daemon_worker_lifecycle_is_observable_over_socket`
-- `control_socket_mode_is_enforced_by_daemon`
-- `control_socket_rejects_attach_and_data_socket_rejects_non_attach`
-- `session_selector_skips_newer_stale_sessions`
+
+### 4.9 · Flake-exposed stateful witnesses
+
 - `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`
 - `nix run .#signal-control-plane-witness`
@@ -367,19 +461,6 @@ Current useful witnesses:
 - `nix run .#live-pi-agent-witness`
 - `nix run .#ghostty-agent-witness`
 - `nix run .#ghostty-agent-session`
-
-Rejected as acceptance evidence for live attach:
-
-- `attach_view_replays_transcript_without_owning_the_child`
-- the removed persistent viewer-input stream, because it tested only input and
-  left output behind transcript subscription.
-
-Required next witnesses:
-
-- Manual Pi TUI in Ghostty accepts human typing immediately and losslessly.
-- The same session accepts Persona programmatic input.
-- A gated Persona injection is delivered contiguously while simultaneous human
-  input is buffered or rejected according to the gate state.
 
 ## Code Map
 
