@@ -186,7 +186,8 @@ async fn terminal_worker_lifecycle_is_actor_observable() {
 
     for worker in [
         TerminalWorkerKind::InputWriter,
-        TerminalWorkerKind::OutputFanout,
+        TerminalWorkerKind::ViewerFanout,
+        TerminalWorkerKind::TranscriptScriber,
         TerminalWorkerKind::OutputReader,
         TerminalWorkerKind::ChildExitWatcher,
     ] {

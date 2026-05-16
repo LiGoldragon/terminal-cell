@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use kameo::actor::{ActorRef, Spawn};
@@ -177,7 +178,8 @@ impl TranscriptSnapshot {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TerminalWorkerKind {
     InputWriter,
-    OutputFanout,
+    ViewerFanout,
+    TranscriptScriber,
     OutputReader,
     ChildExitWatcher,
     SocketAcceptLoop,
@@ -189,6 +191,7 @@ pub enum TerminalWorkerStop {
     InputCommandChannelClosed,
     InputWriteFailed(String),
     OutputCommandChannelClosed,
+    TranscriptNoticeChannelClosed,
     OutputReaderFinished,
     OutputReadFailed(String),
     OutputPortClosed,
@@ -746,16 +749,118 @@ enum TerminalViewerSlot {
     Active(TerminalAttachedViewer),
 }
 
-struct TerminalOutputFanout {
-    actor: ActorRef<TerminalCell>,
+/// The bounded transcript-notice queue capacity. When the queue fills, the
+/// oldest pending notice is dropped to keep `ViewerFanout` non-blocking.
+const TRANSCRIPT_NOTICE_QUEUE_CAPACITY: usize = 1024;
+
+/// Notices flow `ViewerFanout` → `TranscriptScriber` through this typed
+/// queue. The queue is bounded; on overflow the oldest pending notice is
+/// dropped. The scriber is the only consumer; the fanout is the only
+/// producer.
+#[derive(Clone)]
+struct TranscriptNoticeQueue {
+    inner: Arc<TranscriptNoticeQueueInner>,
+}
+
+struct TranscriptNoticeQueueInner {
+    state: Mutex<TranscriptNoticeQueueState>,
+    not_empty: Condvar,
+}
+
+struct TranscriptNoticeQueueState {
+    pending: VecDeque<TranscriptNotice>,
+    capacity: usize,
+    closed: bool,
+    dropped_oldest: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TranscriptNotice {
+    bytes: Vec<u8>,
+}
+
+impl TranscriptNoticeQueue {
+    fn new(capacity: usize) -> Self {
+        Self {
+            inner: Arc::new(TranscriptNoticeQueueInner {
+                state: Mutex::new(TranscriptNoticeQueueState {
+                    pending: VecDeque::with_capacity(capacity),
+                    capacity,
+                    closed: false,
+                    dropped_oldest: 0,
+                }),
+                not_empty: Condvar::new(),
+            }),
+        }
+    }
+
+    /// Non-blocking enqueue. Returns the number of oldest notices dropped
+    /// during this push (0 in steady state, 1 when the queue is full).
+    fn push_drop_oldest(&self, notice: TranscriptNotice) -> u64 {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("transcript notice queue mutex");
+        let mut dropped = 0;
+        while state.pending.len() >= state.capacity {
+            state.pending.pop_front();
+            dropped += 1;
+            state.dropped_oldest = state.dropped_oldest.saturating_add(1);
+        }
+        state.pending.push_back(notice);
+        self.inner.not_empty.notify_one();
+        dropped
+    }
+
+    /// Blocking dequeue. Returns `None` only after the queue has been
+    /// closed and drained.
+    fn pop_blocking(&self) -> Option<TranscriptNotice> {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("transcript notice queue mutex");
+        loop {
+            if let Some(notice) = state.pending.pop_front() {
+                return Some(notice);
+            }
+            if state.closed {
+                return None;
+            }
+            state = self
+                .inner
+                .not_empty
+                .wait(state)
+                .expect("transcript notice queue condvar");
+        }
+    }
+
+    fn close(&self) {
+        let mut state = self
+            .inner
+            .state
+            .lock()
+            .expect("transcript notice queue mutex");
+        state.closed = true;
+        self.inner.not_empty.notify_all();
+    }
+}
+
+/// `ViewerFanout` owns the active-viewer authority and the live byte path
+/// from PTY → viewer. It writes PTY output bytes to the active viewer and
+/// notifies `TranscriptScriber` over a bounded notification queue. It does
+/// not append transcript itself; the actor mailbox is not on this path.
+struct ViewerFanout {
+    transcript: TranscriptNoticeQueue,
     viewer: TerminalViewerSlot,
     next_viewer_sequence: TerminalViewerSequence,
 }
 
-impl TerminalOutputFanout {
-    fn new(actor: ActorRef<TerminalCell>) -> Self {
+impl ViewerFanout {
+    fn new(transcript: TranscriptNoticeQueue) -> Self {
         Self {
-            actor,
+            transcript,
             viewer: TerminalViewerSlot::Empty,
             next_viewer_sequence: TerminalViewerSequence::first(),
         }
@@ -828,11 +933,11 @@ impl TerminalOutputFanout {
         let mut viewer = TerminalAttachedViewer::new(reserved.lease, stream);
         while let Some(bytes) = reserved.pop_bytes() {
             if let Err(error) = viewer.write_bytes(&bytes) {
-                self.record_output(bytes);
-                self.record_reserved_output(reserved);
+                self.notify_transcript(bytes);
+                self.notify_reserved_transcript(reserved);
                 return Err(TerminalCellError::pty(error));
             }
-            self.record_output(bytes);
+            self.notify_transcript(bytes);
         }
         Ok(viewer)
     }
@@ -841,7 +946,7 @@ impl TerminalOutputFanout {
         let slot = std::mem::replace(&mut self.viewer, TerminalViewerSlot::Empty);
         match slot {
             TerminalViewerSlot::Reserved(reserved) if reserved.lease == lease => {
-                self.record_reserved_output(reserved);
+                self.notify_reserved_transcript(reserved);
             }
             TerminalViewerSlot::Active(viewer) if viewer.lease() == lease => {}
             other => {
@@ -867,17 +972,43 @@ impl TerminalOutputFanout {
         if clear_viewer {
             self.viewer = TerminalViewerSlot::Empty;
         }
-        self.record_output(bytes);
+        self.notify_transcript(bytes);
     }
 
-    fn record_reserved_output(&self, mut reserved: TerminalReservedViewer) {
+    fn notify_reserved_transcript(&self, mut reserved: TerminalReservedViewer) {
         while let Some(bytes) = reserved.pop_bytes() {
-            self.record_output(bytes);
+            self.notify_transcript(bytes);
         }
     }
 
-    fn record_output(&self, bytes: Vec<u8>) {
-        let _ = self.actor.tell(TerminalOutput::new(bytes)).try_send();
+    fn notify_transcript(&self, bytes: Vec<u8>) {
+        let _ = self.transcript.push_drop_oldest(TranscriptNotice { bytes });
+    }
+}
+
+/// `TranscriptScriber` is the decoupled transcript appender. It reads
+/// notices from a bounded queue fed by `ViewerFanout` and sends each notice
+/// to the `TerminalCell` actor as a `TerminalOutput` message. The queue's
+/// drop-oldest discipline keeps the fanout non-blocking when the scriber
+/// (or the actor mailbox) falls behind.
+struct TranscriptScriber {
+    actor: ActorRef<TerminalCell>,
+    transcript: TranscriptNoticeQueue,
+}
+
+impl TranscriptScriber {
+    fn new(actor: ActorRef<TerminalCell>, transcript: TranscriptNoticeQueue) -> Self {
+        Self { actor, transcript }
+    }
+
+    fn run(&self) -> TerminalWorkerStop {
+        while let Some(notice) = self.transcript.pop_blocking() {
+            let _ = self
+                .actor
+                .tell(TerminalOutput::new(notice.bytes))
+                .try_send();
+        }
+        TerminalWorkerStop::TranscriptNoticeChannelClosed
     }
 }
 
@@ -1234,17 +1365,34 @@ impl Actor for TerminalCell {
             })
             .expect("terminal input thread starts");
 
-        let output_fanout_ref = actor_ref.clone();
-        let output_fanout_reporter =
-            TerminalWorkerReporter::new(actor_ref.clone(), TerminalWorkerKind::OutputFanout);
+        let transcript_queue = TranscriptNoticeQueue::new(TRANSCRIPT_NOTICE_QUEUE_CAPACITY);
+
+        let viewer_fanout_queue = transcript_queue.clone();
+        let viewer_fanout_reporter =
+            TerminalWorkerReporter::new(actor_ref.clone(), TerminalWorkerKind::ViewerFanout);
+        let viewer_fanout_close = transcript_queue.clone();
         thread::Builder::new()
-            .name("terminal-cell-output-fanout".to_string())
+            .name("terminal-cell-viewer-fanout".to_string())
             .spawn(move || {
-                output_fanout_reporter.started();
-                let reason = TerminalOutputFanout::new(output_fanout_ref).run(output_receiver);
-                output_fanout_reporter.stopped(reason);
+                viewer_fanout_reporter.started();
+                let reason = ViewerFanout::new(viewer_fanout_queue).run(output_receiver);
+                viewer_fanout_close.close();
+                viewer_fanout_reporter.stopped(reason);
             })
-            .expect("terminal output fanout thread starts");
+            .expect("terminal viewer fanout thread starts");
+
+        let scriber_actor = actor_ref.clone();
+        let scriber_queue = transcript_queue;
+        let scriber_reporter =
+            TerminalWorkerReporter::new(actor_ref.clone(), TerminalWorkerKind::TranscriptScriber);
+        thread::Builder::new()
+            .name("terminal-cell-transcript-scriber".to_string())
+            .spawn(move || {
+                scriber_reporter.started();
+                let reason = TranscriptScriber::new(scriber_actor, scriber_queue).run();
+                scriber_reporter.stopped(reason);
+            })
+            .expect("terminal transcript scriber thread starts");
 
         let output_reader_port = output_port;
         let output_reader_reporter =

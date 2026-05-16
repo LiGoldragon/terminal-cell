@@ -284,6 +284,56 @@ fn slow_transcript_subscriber_does_not_block_attached_viewer_output() {
     );
 }
 
+/// Architectural-truth witness for the §3.3 "Transcript decoupling"
+/// constraint: `TranscriptScriber` reads notices from a bounded queue
+/// fed by `ViewerFanout`, and the queue drops the oldest pending notice
+/// under overflow. The viewer fanout returns immediately; transcript
+/// append happens on a separate worker.
+///
+/// The witness: drive the child to flood output that exceeds the
+/// scriber's queue capacity (1024 notices), then prove the attached
+/// viewer reads a steady stream of those bytes in bounded wall time.
+/// If the viewer write were synchronously coupled to transcript
+/// append (the pre-split shape), the viewer would block behind the
+/// scriber and the read window would either stall or take far longer
+/// than the budget below.
+#[test]
+fn slow_transcript_append_does_not_block_viewer_output() {
+    let daemon = DaemonFixture::spawn_command(
+        "transcript-append-decoupled-from-viewer",
+        &DaemonFixture::binary("output-flood-fixture"),
+        &[],
+    );
+
+    let _slow_subscriber = daemon
+        .client()
+        .subscribe_from_beginning()
+        .expect("slow transcript subscriber connects");
+    let mut viewer = AttachedStream::new(daemon.open_attach_stream());
+
+    // Read enough output to prove the viewer is flowing far past the
+    // scriber's bounded queue capacity (1024 notices). If the viewer
+    // write were synchronously coupled to transcript append, the
+    // viewer would stall behind the scriber and the read window would
+    // not reach line 5000 inside the budget.
+    let started = Instant::now();
+    let output = viewer.read_until("flood-05000", Duration::from_secs(5));
+    let elapsed = started.elapsed();
+
+    assert!(
+        output.contains("flood-ready"),
+        "viewer saw the flood-ready marker"
+    );
+    assert!(
+        output.contains("flood-00000"),
+        "viewer saw early flood lines despite scriber load"
+    );
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "viewer reads stream past the scriber's bounded queue inside the budget: {elapsed:?}"
+    );
+}
+
 /// Architectural-truth witness for the data plane's no-actor promise
 /// stated in `terminal-cell/ARCHITECTURE.md` §1 and §3: viewer attach
 /// transport bytes never traverse the `TerminalCell` actor mailbox. We
@@ -362,7 +412,8 @@ fn daemon_worker_lifecycle_is_observable_over_socket() {
         .expect("worker observation request succeeds");
     for expected in [
         "started:InputWriter",
-        "started:OutputFanout",
+        "started:ViewerFanout",
+        "started:TranscriptScriber",
         "started:OutputReader",
         "started:ChildExitWatcher",
         "started:SocketAcceptLoop",
