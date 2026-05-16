@@ -76,7 +76,15 @@ impl RuntimeSession {
     }
 
     fn socket_is_present(&self) -> bool {
-        fs::symlink_metadata(self.path.join("cell.sock"))
+        // A live session exposes both the control plane and the data
+        // plane. Either being missing means the session is partially
+        // bound and not selectable.
+        self.is_socket(self.path.join("control.sock"))
+            && self.is_socket(self.path.join("data.sock"))
+    }
+
+    fn is_socket(&self, path: PathBuf) -> bool {
+        fs::symlink_metadata(path)
             .map(|metadata| metadata.file_type().is_socket())
             .unwrap_or(false)
     }

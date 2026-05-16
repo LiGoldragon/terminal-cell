@@ -15,7 +15,8 @@ use terminal_cell::{
 struct DaemonFixture {
     child: Child,
     root: PathBuf,
-    socket: PathBuf,
+    control_socket: PathBuf,
+    data_socket: PathBuf,
 }
 
 impl DaemonFixture {
@@ -36,10 +37,17 @@ impl DaemonFixture {
         let root = env::temp_dir().join(format!("terminal-cell-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("daemon test root created");
-        let socket = root.join("cell.sock");
+        let control_socket = root.join("control.sock");
+        let data_socket = root.join("data.sock");
 
         let mut command = Command::new(Self::binary("terminal-cell-daemon"));
-        command.arg("--socket").arg(&socket).arg("--").arg(program);
+        command
+            .arg("--control-socket")
+            .arg(&control_socket)
+            .arg("--data-socket")
+            .arg(&data_socket)
+            .arg("--")
+            .arg(program);
         for argument in arguments {
             command.arg(argument);
         }
@@ -61,21 +69,23 @@ impl DaemonFixture {
             let _ = stderr.read_to_string(&mut error_output);
         }
         assert!(
-            ready.contains(socket.to_string_lossy().as_ref()),
-            "daemon ready line names socket path: {ready}; stderr: {error_output}"
+            ready.contains(control_socket.to_string_lossy().as_ref())
+                && ready.contains(data_socket.to_string_lossy().as_ref()),
+            "daemon ready line names both socket paths: {ready}; stderr: {error_output}"
         );
 
         Self {
             child,
             root,
-            socket,
+            control_socket,
+            data_socket,
         }
     }
 
     fn wait_for_text(&self, text: &str) {
         let status = Command::new(Self::binary("terminal-cell-wait"))
-            .arg("--socket")
-            .arg(&self.socket)
+            .arg("--control-socket")
+            .arg(&self.control_socket)
             .arg("--text")
             .arg(text)
             .status()
@@ -85,8 +95,8 @@ impl DaemonFixture {
 
     fn send_line(&self, line: &str) {
         let status = Command::new(Self::binary("terminal-cell-send"))
-            .arg("--socket")
-            .arg(&self.socket)
+            .arg("--control-socket")
+            .arg(&self.control_socket)
             .arg("--line")
             .arg(line)
             .status()
@@ -95,25 +105,25 @@ impl DaemonFixture {
     }
 
     fn resize(&self, rows: u16, columns: u16) {
-        TerminalCellSocketClient::new(&self.socket)
+        TerminalCellSocketClient::for_control_only(&self.control_socket)
             .resize(TerminalSize::new(rows, columns))
             .expect("resize request accepted");
     }
 
     fn client(&self) -> TerminalCellSocketClient {
-        TerminalCellSocketClient::new(self.socket.clone())
+        TerminalCellSocketClient::new(self.control_socket.clone(), self.data_socket.clone())
     }
 
     fn open_attach_stream(&self) -> std::os::unix::net::UnixStream {
-        TerminalCellSocketClient::new(&self.socket)
+        self.client()
             .open_attach_stream()
             .expect("attach stream opened")
     }
 
     fn capture_text(&self) -> String {
         let output = Command::new(Self::binary("terminal-cell-capture"))
-            .arg("--socket")
-            .arg(&self.socket)
+            .arg("--control-socket")
+            .arg(&self.control_socket)
             .output()
             .expect("capture command runs");
         assert!(output.status.success(), "capture command succeeded");
@@ -122,8 +132,10 @@ impl DaemonFixture {
 
     fn view_once_text(&self) -> String {
         let output = Command::new(Self::binary("terminal-cell-view"))
-            .arg("--socket")
-            .arg(&self.socket)
+            .arg("--control-socket")
+            .arg(&self.control_socket)
+            .arg("--data-socket")
+            .arg(&self.data_socket)
             .arg("--once")
             .output()
             .expect("view command runs");
@@ -133,8 +145,8 @@ impl DaemonFixture {
 
     fn wait_for_exit_status(&self) -> String {
         let output = Command::new(Self::binary("terminal-cell-exit"))
-            .arg("--socket")
-            .arg(&self.socket)
+            .arg("--control-socket")
+            .arg(&self.control_socket)
             .output()
             .expect("exit command runs");
         assert!(output.status.success(), "exit command succeeded");
@@ -153,10 +165,86 @@ impl Drop for DaemonFixture {
 #[test]
 fn control_socket_mode_is_enforced_by_daemon() {
     let daemon = DaemonFixture::spawn("control-socket-mode");
-    let metadata = fs::metadata(&daemon.socket).expect("daemon socket metadata readable");
-    let mode = metadata.permissions().mode() & 0o777;
+    let control_mode = fs::metadata(&daemon.control_socket)
+        .expect("control socket metadata readable")
+        .permissions()
+        .mode()
+        & 0o777;
+    let data_mode = fs::metadata(&daemon.data_socket)
+        .expect("data socket metadata readable")
+        .permissions()
+        .mode()
+        & 0o777;
 
-    assert_eq!(mode, 0o600);
+    assert_eq!(control_mode, 0o600, "control socket is mode 0600");
+    assert_eq!(data_mode, 0o600, "data socket is mode 0600");
+}
+
+/// Architectural-truth witness for the two-plane wire boundary mandated
+/// by `terminal-cell/ARCHITECTURE.md` §1: the control socket must not
+/// accept an Attach request, and the data socket must not accept any
+/// control-plane request. Both rejections arrive as `ATTACH_REJECTED`
+/// before any byte transport begins, so the client observes the typed
+/// failure rather than a stuck-stream silent confusion.
+#[test]
+fn control_socket_rejects_attach_and_data_socket_rejects_non_attach() {
+    use std::os::unix::net::UnixStream;
+    use terminal_cell::SocketReplyReader;
+    use terminal_cell::SocketRequestWriter;
+
+    let daemon = DaemonFixture::spawn("plane-isolation");
+    daemon.wait_for_text("agent-ready");
+
+    // Attach on the control socket: a wire-level violation. The control
+    // listener writes ATTACH_REJECTED naming the wrong plane before
+    // closing.
+    let mut control_attach_stream =
+        UnixStream::connect(&daemon.control_socket).expect("control socket reachable");
+    SocketRequestWriter::new(&mut control_attach_stream)
+        .write_attach_request()
+        .expect("attach request writes");
+    let control_attach_error = SocketReplyReader::new(&mut control_attach_stream)
+        .read_attach_acceptance()
+        .expect_err("control socket rejects attach");
+    assert_eq!(
+        control_attach_error.kind(),
+        std::io::ErrorKind::ConnectionRefused,
+        "control socket emits a typed attach rejection"
+    );
+    assert!(
+        control_attach_error
+            .to_string()
+            .contains("control socket"),
+        "rejection names the violated plane: {control_attach_error}"
+    );
+
+    // Programmatic input on the data socket: a wire-level violation. The
+    // data listener writes ATTACH_REJECTED before closing.
+    let mut data_input_stream =
+        UnixStream::connect(&daemon.data_socket).expect("data socket reachable");
+    SocketRequestWriter::new(&mut data_input_stream)
+        .write_programmatic_input(b"this byte tag must not be honored on the data plane\r")
+        .expect("input request writes");
+    let data_input_error = SocketReplyReader::new(&mut data_input_stream)
+        .read_attach_acceptance()
+        .expect_err("data socket rejects non-attach");
+    assert_eq!(
+        data_input_error.kind(),
+        std::io::ErrorKind::ConnectionRefused,
+        "data socket emits a typed attach rejection"
+    );
+    assert!(
+        data_input_error.to_string().contains("data socket"),
+        "rejection names the violated plane: {data_input_error}"
+    );
+
+    // The agent transcript must not contain the bytes that violated the
+    // data plane: the data socket never wrote them to the PTY.
+    let transcript = daemon.capture_text();
+    assert!(
+        !transcript.contains("this byte tag must not be honored on the data plane"),
+        "violation bytes never reach the child PTY: {transcript}"
+    );
 }
 
 #[test]
@@ -258,6 +346,49 @@ fn attach_stream_is_raw_bidirectional_byte_path() {
     assert!(transcript.contains("agent-response: hello raw attach stream"));
 }
 
+/// Architectural-truth witness for the input-gate's multi-client
+/// serialization promise stated in `terminal-cell/ARCHITECTURE.md` §3:
+/// when two independent harness clients try to acquire the input gate
+/// simultaneously, the first lease is granted, the second observes the
+/// already-closed state and is rejected with a typed
+/// `InputGateAlreadyClosed`. Release of the first lease reopens the
+/// gate for a follow-up acquire.
+#[test]
+fn input_gate_serializes_two_harness_lease_attempts() {
+    let daemon = DaemonFixture::spawn("multi-harness-gate");
+    daemon.wait_for_text("agent-ready");
+
+    let client = daemon.client();
+    let first_lease = client
+        .close_human_input()
+        .expect("first harness acquires the input gate");
+
+    // The second harness opens its own connection. The control plane
+    // serializes both: the second one returns the typed
+    // `InputGateAlreadyClosed` shape (mapped to `ATTACH_REJECTED` on
+    // wire? No — the byte-tag protocol returns `terminal_error` from
+    // `close_human_input`. The error originates from the actor.)
+    let second_attempt = client.close_human_input();
+    assert!(
+        second_attempt.is_err(),
+        "second concurrent gate acquire is rejected while the first is open"
+    );
+
+    // Release the first lease. The gate reopens.
+    let release = client
+        .open_human_input(first_lease)
+        .expect("first harness releases the input gate");
+    assert_eq!(release.lease(), first_lease);
+
+    // A fresh acquire after release succeeds.
+    let third_lease = client
+        .close_human_input()
+        .expect("post-release acquire succeeds");
+    let _ = client
+        .open_human_input(third_lease)
+        .expect("third lease released");
+}
+
 #[test]
 fn input_gate_holds_human_bytes_during_programmatic_injection() {
     let daemon = DaemonFixture::spawn_shell(
@@ -265,7 +396,7 @@ fn input_gate_holds_human_bytes_during_programmatic_injection() {
         "IFS= read -r first; printf 'first:%s\\n' \"$first\"; \
          IFS= read -r second; printf 'second:%s\\n' \"$second\"",
     );
-    let client = TerminalCellSocketClient::new(daemon.socket.clone());
+    let client = daemon.client();
     let mut viewer = daemon.open_attach_stream();
 
     let lease = client.close_human_input().expect("human input gate closes");
@@ -480,8 +611,8 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
     let daemon = DaemonFixture::spawn("signal-worker-lifecycle");
     daemon.wait_for_text("agent-ready");
 
-    let mut subscription =
-        std::os::unix::net::UnixStream::connect(&daemon.socket).expect("subscription socket opens");
+    let mut subscription = std::os::unix::net::UnixStream::connect(&daemon.control_socket)
+        .expect("subscription socket opens");
     subscription
         .set_read_timeout(Some(Duration::from_secs(2)))
         .expect("subscription read timeout set");

@@ -7,24 +7,23 @@ use terminal_cell::{TerminalCellSocketClient, TerminalSize};
 type ResizeResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 struct ResizeArguments {
-    socket: PathBuf,
+    control_socket: PathBuf,
     size: TerminalSize,
 }
 
 impl ResizeArguments {
     fn from_environment() -> ResizeResult<Self> {
         let mut arguments = env::args().skip(1);
-        let mut socket = None;
+        let mut control_socket = None;
         let mut rows = None;
         let mut columns = None;
 
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => {
-                    socket =
-                        Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-resize requires a path after --socket",
-                        )?));
+                "--control-socket" => {
+                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-resize requires a path after --control-socket",
+                    )?));
                 }
                 "--rows" => rows = Some(Self::parse_dimension(arguments.next(), "--rows")?),
                 "--columns" => {
@@ -35,7 +34,8 @@ impl ResizeArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-resize requires --socket <path>")?,
+            control_socket: control_socket
+                .ok_or("terminal-cell-resize requires --control-socket <path>")?,
             size: TerminalSize::new(
                 rows.ok_or("terminal-cell-resize requires --rows <count>")?,
                 columns.ok_or("terminal-cell-resize requires --columns <count>")?,
@@ -56,7 +56,7 @@ impl ResizeArguments {
     }
 
     fn into_command(self) -> ResizeCommand {
-        ResizeCommand::new(self.socket, self.size)
+        ResizeCommand::new(self.control_socket, self.size)
     }
 }
 
@@ -66,9 +66,9 @@ struct ResizeCommand {
 }
 
 impl ResizeCommand {
-    fn new(socket: PathBuf, size: TerminalSize) -> Self {
+    fn new(control_socket: PathBuf, size: TerminalSize) -> Self {
         Self {
-            client: TerminalCellSocketClient::new(socket),
+            client: TerminalCellSocketClient::for_control_only(control_socket),
             size,
         }
     }

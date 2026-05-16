@@ -71,7 +71,7 @@ nix run .#ghostty-agent-session
 nix run .#list-ghostty-agent-sessions
 nix run .#rename-ghostty-agent-session -- terminal-cell-main
 nix run .#reattach-ghostty-agent-session
-nix run .#terminal-cell-resize -- --socket "$TERMINAL_CELL_SOCKET" --rows 41 --columns 113
+nix run .#terminal-cell-resize -- --control-socket "$TERMINAL_CELL_CONTROL_SOCKET" --rows 41 --columns 113
 nix run .#close-ghostty-agent-sessions
 ```
 
@@ -91,9 +91,9 @@ second argument. Override Pi with
 require an attached Ghostty view.
 
 This component does not have a Sema database. Session listing and naming are
-local runtime-directory metadata (`session.name`, `session.env`, pid files, and
-`cell.sock`). The production registry belongs in a `persona-terminal`
-supervisor daemon with Sema-owned session state.
+local runtime-directory metadata (`session.name`, `session.env`, pid files,
+`control.sock`, `data.sock`). The production registry belongs in a
+`persona-terminal` supervisor daemon with Sema-owned session state.
 
 On Niri, prevent the demo window from stealing focus with a targeted rule:
 

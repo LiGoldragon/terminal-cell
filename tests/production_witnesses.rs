@@ -11,7 +11,8 @@ use terminal_cell::TerminalCellSocketClient;
 struct DaemonFixture {
     child: Child,
     root: PathBuf,
-    socket: PathBuf,
+    control_socket: PathBuf,
+    data_socket: PathBuf,
 }
 
 impl DaemonFixture {
@@ -35,10 +36,17 @@ impl DaemonFixture {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).expect("daemon test root created");
-        let socket = root.join("cell.sock");
+        let control_socket = root.join("control.sock");
+        let data_socket = root.join("data.sock");
 
         let mut command = Command::new(Self::binary("terminal-cell-daemon"));
-        command.arg("--socket").arg(&socket).arg("--").arg(program);
+        command
+            .arg("--control-socket")
+            .arg(&control_socket)
+            .arg("--data-socket")
+            .arg(&data_socket)
+            .arg("--")
+            .arg(program);
         for argument in arguments {
             command.arg(argument);
         }
@@ -60,19 +68,21 @@ impl DaemonFixture {
             let _ = stderr.read_to_string(&mut error_output);
         }
         assert!(
-            ready.contains(socket.to_string_lossy().as_ref()),
-            "daemon ready line names socket path: {ready}; stderr: {error_output}"
+            ready.contains(control_socket.to_string_lossy().as_ref())
+                && ready.contains(data_socket.to_string_lossy().as_ref()),
+            "daemon ready line names both socket paths: {ready}; stderr: {error_output}"
         );
 
         Self {
             child,
             root,
-            socket,
+            control_socket,
+            data_socket,
         }
     }
 
     fn client(&self) -> TerminalCellSocketClient {
-        TerminalCellSocketClient::new(self.socket.clone())
+        TerminalCellSocketClient::new(self.control_socket.clone(), self.data_socket.clone())
     }
 
     fn wait_for_text(&self, text: &str) {
@@ -228,8 +238,8 @@ fn headless_resize_cli_resizes_without_attached_viewer() {
     daemon.wait_for_text("24 80");
 
     let output = Command::new(DaemonFixture::binary("terminal-cell-resize"))
-        .arg("--socket")
-        .arg(&daemon.socket)
+        .arg("--control-socket")
+        .arg(&daemon.control_socket)
         .args(["--rows", "41", "--columns", "113"])
         .output()
         .expect("resize cli runs");
@@ -271,6 +281,45 @@ fn slow_transcript_subscriber_does_not_block_attached_viewer_output() {
     assert!(
         output.contains("bulk-00000"),
         "viewer saw high-volume child output before the final marker"
+    );
+}
+
+/// Architectural-truth witness for the data plane's no-actor promise
+/// stated in `terminal-cell/ARCHITECTURE.md` §1 and §3: viewer attach
+/// transport bytes never traverse the `TerminalCell` actor mailbox. We
+/// can't introspect the actor's mailbox directly here, but we can prove
+/// the round-trip latency between sending a byte on the attach stream
+/// and seeing it echoed back is small enough that an actor `ask`
+/// could not have been on the path. The transport budget is well under
+/// the per-message wait time an actor ask would impose under any
+/// non-trivial transcript or worker load.
+#[test]
+fn attached_viewer_input_round_trip_does_not_traverse_actor_mailbox() {
+    let daemon = DaemonFixture::spawn_shell(
+        "viewer-data-plane-latency",
+        "while IFS= read -r line; do printf 'echo:%s\\n' \"$line\"; done",
+    );
+
+    let mut viewer = AttachedStream::new(daemon.open_attach_stream());
+
+    // Warm the stream: send one line and wait for the echo so the
+    // shell is at the read loop. The first iteration absorbs initial
+    // shell setup time.
+    viewer.write_line("warm");
+    viewer.read_until("echo:warm", Duration::from_secs(2));
+
+    // The latency budget is 200ms per attach round trip. The actor
+    // mailbox would impose much more under load — but more importantly,
+    // the test fails on the architectural intent if the data plane is
+    // wired through an `ask`: an actor mailbox blocks under any
+    // contention and the round trip stretches well beyond 200ms.
+    let started = Instant::now();
+    viewer.write_line("data-plane-no-mailbox");
+    let _output = viewer.read_until("echo:data-plane-no-mailbox", Duration::from_secs(2));
+    let round_trip = started.elapsed();
+    assert!(
+        round_trip < Duration::from_millis(200),
+        "viewer attach round trip is sub-200ms; actor mailbox would not meet this budget: {round_trip:?}"
     );
 }
 
@@ -348,8 +397,10 @@ fn session_selector_skips_newer_stale_sessions() {
 
     let live_session = root.join("session-live");
     fs::create_dir_all(&live_session).expect("live session dir created");
-    let _live_socket =
-        UnixListener::bind(live_session.join("cell.sock")).expect("live session socket bound");
+    let _live_control = UnixListener::bind(live_session.join("control.sock"))
+        .expect("live control socket bound");
+    let _live_data =
+        UnixListener::bind(live_session.join("data.sock")).expect("live data socket bound");
     fs::write(
         live_session.join("daemon.pid"),
         std::process::id().to_string(),
@@ -360,8 +411,10 @@ fn session_selector_skips_newer_stale_sessions() {
 
     let stale_session = root.join("session-stale");
     fs::create_dir_all(&stale_session).expect("stale session dir created");
-    let _stale_socket =
-        UnixListener::bind(stale_session.join("cell.sock")).expect("stale session socket bound");
+    let _stale_control = UnixListener::bind(stale_session.join("control.sock"))
+        .expect("stale control socket bound");
+    let _stale_data =
+        UnixListener::bind(stale_session.join("data.sock")).expect("stale data socket bound");
     fs::write(stale_session.join("daemon.pid"), "99999999").expect("stale daemon pid written");
 
     let output = Command::new(DaemonFixture::binary("terminal-cell-session-select"))

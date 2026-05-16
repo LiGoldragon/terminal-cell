@@ -8,33 +8,33 @@ use terminal_cell::TerminalCellSocketClient;
 type ExitResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 struct ExitArguments {
-    socket: PathBuf,
+    control_socket: PathBuf,
 }
 
 impl ExitArguments {
     fn from_environment() -> ExitResult<Self> {
         let mut arguments = env::args().skip(1);
-        let mut socket = None;
+        let mut control_socket = None;
 
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => {
-                    socket =
-                        Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-exit requires a path after --socket",
-                        )?));
+                "--control-socket" => {
+                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-exit requires a path after --control-socket",
+                    )?));
                 }
                 other => return Err(format!("unknown exit argument: {other}").into()),
             }
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-exit requires --socket <path>")?,
+            control_socket: control_socket
+                .ok_or("terminal-cell-exit requires --control-socket <path>")?,
         })
     }
 
     fn into_command(self) -> ExitCommand {
-        ExitCommand::new(self.socket)
+        ExitCommand::new(self.control_socket)
     }
 }
 
@@ -43,9 +43,9 @@ struct ExitCommand {
 }
 
 impl ExitCommand {
-    fn new(socket: PathBuf) -> Self {
+    fn new(control_socket: PathBuf) -> Self {
         Self {
-            client: TerminalCellSocketClient::new(socket),
+            client: TerminalCellSocketClient::for_control_only(control_socket),
         }
     }
 

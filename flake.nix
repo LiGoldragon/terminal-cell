@@ -183,7 +183,8 @@
                 --bin terminal-cell-wait
               target_debug="$(pwd)/target/debug"
               root="$(mktemp -d -t terminal-cell-live-agent.XXXXXX)"
-              socket="$root/cell.sock"
+              control_socket="$root/control.sock"
+              data_socket="$root/data.sock"
               daemon_ready="$root/daemon.ready"
               workspace="$root/workspace"
               artifact_dir="target/live-coding-agent-witness"
@@ -196,8 +197,8 @@
               daemon_pid=""
               cleanup() {
                 status="$?"
-                if [ "$status" -ne 0 ] && [ -S "$socket" ]; then
-                  "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact.failure" 2>/dev/null || true
+                if [ "$status" -ne 0 ] && [ -S "$control_socket" ]; then
+                  "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$artifact.failure" 2>/dev/null || true
                   if [ -s "$artifact.failure" ]; then
                     printf 'live coding agent failure transcript=%s\n' "$artifact.failure" >&2
                   fi
@@ -230,7 +231,8 @@
               fi
 
               setsid "$target_debug/terminal-cell-daemon" \
-                --socket "$socket" \
+                --control-socket "$control_socket" \
+                --data-socket "$data_socket" \
                 -- "$agent_bin" \
                   --no-alt-screen \
                   --sandbox read-only \
@@ -248,9 +250,9 @@
 
               deadline=$((SECONDS + 30))
               while [ "$SECONDS" -lt "$deadline" ]; do
-                transcript="$("$target_debug/terminal-cell-capture" --socket "$socket" || true)"
+                transcript="$("$target_debug/terminal-cell-capture" --control-socket "$control_socket" || true)"
                 if printf '%s' "$transcript" | grep -Eq 'Quick safety check|Yes, I trust this folder|Enter to confirm'; then
-                  "$target_debug/terminal-cell-send" --socket "$socket" --line ""
+                  "$target_debug/terminal-cell-send" --control-socket "$control_socket" --line ""
                   break
                 fi
                 if printf '%s' "$transcript" | grep -Eq 'What can I help|Describe a task|Ask Codex'; then
@@ -260,12 +262,12 @@
               done
 
               live_prompt="Reply with exactly the uppercase underscore-separated form of these five words, and no other text: terminal cell live agent ok."
-              "$target_debug/terminal-cell-send" --socket "$socket" --bytes "$live_prompt"
-              timeout 60s "$target_debug/terminal-cell-wait" --socket "$socket" --text "uppercase"
+              "$target_debug/terminal-cell-send" --control-socket "$control_socket" --bytes "$live_prompt"
+              timeout 60s "$target_debug/terminal-cell-wait" --control-socket "$control_socket" --text "uppercase"
               enter_bytes=$'\r'
-              "$target_debug/terminal-cell-send" --socket "$socket" --bytes "$enter_bytes"
-              timeout 300s "$target_debug/terminal-cell-wait" --socket "$socket" --text "$marker"
-              "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact"
+              "$target_debug/terminal-cell-send" --control-socket "$control_socket" --bytes "$enter_bytes"
+              timeout 300s "$target_debug/terminal-cell-wait" --control-socket "$control_socket" --text "$marker"
+              "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$artifact"
               grep -q "$marker" "$artifact"
               printf 'live coding agent witness transcript=%s\n' "$artifact"
             '';
@@ -289,7 +291,8 @@
                 --bin terminal-cell-wait
               target_debug="$(pwd)/target/debug"
               root="$(mktemp -d -t terminal-cell-live-pi.XXXXXX)"
-              socket="$root/cell.sock"
+              control_socket="$root/control.sock"
+              data_socket="$root/data.sock"
               daemon_ready="$root/daemon.ready"
               artifact_dir="target/live-pi-agent-witness"
               artifact="$artifact_dir/transcript.txt"
@@ -301,8 +304,8 @@
               daemon_pid=""
               cleanup() {
                 status="$?"
-                if [ "$status" -ne 0 ] && [ -S "$socket" ]; then
-                  "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact.failure" 2>/dev/null || true
+                if [ "$status" -ne 0 ] && [ -S "$control_socket" ]; then
+                  "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$artifact.failure" 2>/dev/null || true
                   if [ -s "$artifact.failure" ]; then
                     printf 'live Pi agent failure transcript=%s\n' "$artifact.failure" >&2
                   fi
@@ -339,7 +342,8 @@
 
               # shellcheck disable=SC2016
               setsid "$target_debug/terminal-cell-daemon" \
-                --socket "$socket" \
+                --control-socket "$control_socket" \
+                --data-socket "$data_socket" \
                 -- ${pkgs.bash}/bin/bash -lc 'cd "$1" || exit; shift; exec "$@"' terminal-cell-pi "$pi_workspace" "$pi_bin" "''${pi_args[@]}" > "$daemon_ready" 2> "$root/daemon.stderr" &
               daemon_pid="$!"
 
@@ -350,12 +354,12 @@
               fi
               printf '%s\n' "$ready_line"
 
-              timeout 60s "$target_debug/terminal-cell-wait" --socket "$socket" --text "Pi can explain"
+              timeout 60s "$target_debug/terminal-cell-wait" --control-socket "$control_socket" --text "Pi can explain"
               live_prompt="Reply with exactly the uppercase underscore-separated form of these five words, and no other text: terminal cell pi witness passes."
-              "$target_debug/terminal-cell-send" --socket "$socket" --line "$live_prompt"
-              timeout 300s "$target_debug/terminal-cell-wait" --socket "$socket" --text "$marker"
+              "$target_debug/terminal-cell-send" --control-socket "$control_socket" --line "$live_prompt"
+              timeout 300s "$target_debug/terminal-cell-wait" --control-socket "$control_socket" --text "$marker"
               sleep "''${TERMINAL_CELL_LIVE_PI_SETTLE_SECONDS:-10}"
-              "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact"
+              "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$artifact"
               grep -q "$marker" "$artifact"
               printf 'live Pi agent witness transcript=%s\n' "$artifact"
             '';
@@ -376,13 +380,15 @@
                 --bin terminal-cell-view
               target_debug="$(pwd)/target/debug"
               root="$(mktemp -d -t terminal-cell-ghostty.XXXXXX)"
-              socket="$root/cell.sock"
+              control_socket="$root/control.sock"
+              data_socket="$root/data.sock"
               ready="$root/daemon.ready"
               view_ready="$root/view.ready"
               mkfifo "$ready"
               mkfifo "$view_ready"
               "$target_debug/terminal-cell-daemon" \
-                --socket "$socket" \
+                --control-socket "$control_socket" \
+                --data-socket "$data_socket" \
                 -- "$target_debug/agent-terminal-fixture" > "$ready" &
               daemon_pid="$!"
               ghostty_pid=""
@@ -405,7 +411,7 @@
               fi
               ghostty_class="''${TERMINAL_CELL_GHOSTTY_CLASS:-com.ligoldragon.terminalcellwitness}"
 
-              "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --socket "$socket" --ready-file "$view_ready" &
+              "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --control-socket "$control_socket" --data-socket "$data_socket" --ready-file "$view_ready" &
               ghostty_pid="$!"
               view_line="$(timeout 20s head -n 1 "$view_ready")"
               if [ -z "$view_line" ]; then
@@ -438,7 +444,8 @@
                 --bin terminal-cell-wait
               target_debug="$(pwd)/target/debug"
               root="$(mktemp -d -t terminal-cell-ghostty-witness.XXXXXX)"
-              socket="$root/cell.sock"
+              control_socket="$root/control.sock"
+              data_socket="$root/data.sock"
               daemon_ready="$root/daemon.ready"
               view_ready="$root/view.ready"
               artifact_dir="target/ghostty-agent-witness"
@@ -447,7 +454,8 @@
               mkfifo "$daemon_ready"
               mkfifo "$view_ready"
               "$target_debug/terminal-cell-daemon" \
-                --socket "$socket" \
+                --control-socket "$control_socket" \
+                --data-socket "$data_socket" \
                 -- "$target_debug/agent-terminal-fixture" > "$daemon_ready" &
               daemon_pid="$!"
               ghostty_pid=""
@@ -470,7 +478,7 @@
               fi
               ghostty_class="''${TERMINAL_CELL_GHOSTTY_CLASS:-com.ligoldragon.terminalcellwitness}"
 
-              "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --socket "$socket" --ready-file "$view_ready" &
+              "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --control-socket "$control_socket" --data-socket "$data_socket" --ready-file "$view_ready" &
               ghostty_pid="$!"
               view_line="$(timeout 20s head -n 1 "$view_ready")"
               if [ -z "$view_line" ]; then
@@ -479,10 +487,10 @@
               fi
               printf '%s\n' "$view_line"
 
-              "$target_debug/terminal-cell-wait" --socket "$socket" --text agent-ready
-              "$target_debug/terminal-cell-send" --socket "$socket" --line "hello ghostty attach"
-              "$target_debug/terminal-cell-wait" --socket "$socket" --text "agent-response: hello ghostty attach"
-              "$target_debug/terminal-cell-capture" --socket "$socket" > "$artifact"
+              "$target_debug/terminal-cell-wait" --control-socket "$control_socket" --text agent-ready
+              "$target_debug/terminal-cell-send" --control-socket "$control_socket" --line "hello ghostty attach"
+              "$target_debug/terminal-cell-wait" --control-socket "$control_socket" --text "agent-response: hello ghostty attach"
+              "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$artifact"
               grep -q "agent-response: hello ghostty attach" "$artifact"
               printf 'ghostty witness transcript=%s\n' "$artifact"
             '';
@@ -507,7 +515,8 @@
               session_root="''${TERMINAL_CELL_SESSION_ROOT:-''${XDG_RUNTIME_DIR:-/tmp}/terminal-cell}"
               session="$session_root/session-$(date +%Y%m%d-%H%M%S)-$$"
               session_name="''${TERMINAL_CELL_SESSION_NAME:-$(basename "$session")}"
-              socket="$session/cell.sock"
+              control_socket="$session/control.sock"
+              data_socket="$session/data.sock"
               daemon_ready="$session/daemon.ready"
               view_ready="$session/view.ready"
               mkdir -p "$session"
@@ -555,7 +564,8 @@
 
               # shellcheck disable=SC2016
               setsid "$target_debug/terminal-cell-daemon" \
-                --socket "$socket" \
+                --control-socket "$control_socket" \
+                --data-socket "$data_socket" \
                 -- ${pkgs.bash}/bin/bash -lc 'cd "$1" || exit; shift; exec "$@"' terminal-cell-pi "$pi_workspace" "$pi_bin" "''${pi_args[@]}" > "$daemon_ready" 2> "$session/daemon.stderr" &
               daemon_pid="$!"
               printf '%s\n' "$daemon_pid" > "$session/daemon.pid"
@@ -577,7 +587,7 @@
               fi
               ghostty_class="''${TERMINAL_CELL_GHOSTTY_CLASS:-com.ligoldragon.terminalcellpi}"
 
-              setsid "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --socket "$socket" --ready-file "$view_ready" > "$session/ghostty.stdout" 2> "$session/ghostty.stderr" &
+              setsid "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --control-socket "$control_socket" --data-socket "$data_socket" --ready-file "$view_ready" > "$session/ghostty.stdout" 2> "$session/ghostty.stderr" &
               ghostty_pid="$!"
               printf '%s\n' "$ghostty_pid" > "$session/ghostty.pid"
               view_line="$(timeout 20s head -n 1 "$view_ready")"
@@ -588,17 +598,18 @@
               printf '%s\n' "$view_line"
 
               sleep "''${TERMINAL_CELL_PI_SETTLE_SECONDS:-2}"
-              if timeout 1s "$target_debug/terminal-cell-exit" --socket "$socket" > "$session/exit.status" 2>/dev/null; then
+              if timeout 1s "$target_debug/terminal-cell-exit" --control-socket "$control_socket" > "$session/exit.status" 2>/dev/null; then
                 printf 'pi exited before the visible session could stay attached; see %s\n' "$session/exit.status" >&2
-                "$target_debug/terminal-cell-capture" --socket "$socket" > "$session/transcript.initial" 2>/dev/null || true
+                "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$session/transcript.initial" 2>/dev/null || true
                 exit 1
               fi
-              "$target_debug/terminal-cell-capture" --socket "$socket" > "$session/transcript.initial" 2>/dev/null || true
+              "$target_debug/terminal-cell-capture" --control-socket "$control_socket" > "$session/transcript.initial" 2>/dev/null || true
 
               {
                 printf 'TERMINAL_CELL_SESSION=%s\n' "$session"
                 printf 'TERMINAL_CELL_SESSION_NAME=%s\n' "$session_name"
-                printf 'TERMINAL_CELL_SOCKET=%s\n' "$socket"
+                printf 'TERMINAL_CELL_CONTROL_SOCKET=%s\n' "$control_socket"
+                printf 'TERMINAL_CELL_DATA_SOCKET=%s\n' "$data_socket"
                 printf 'TERMINAL_CELL_DAEMON_PID=%s\n' "$daemon_pid"
                 printf 'TERMINAL_CELL_GHOSTTY_PID=%s\n' "$ghostty_pid"
                 printf 'TERMINAL_CELL_GHOSTTY_CLASS=%s\n' "$ghostty_class"
@@ -611,7 +622,8 @@
               trap - EXIT
               printf 'terminal-cell pi session=%s\n' "$session"
               printf 'terminal-cell name=%s\n' "$session_name"
-              printf 'terminal-cell socket=%s\n' "$socket"
+              printf 'terminal-cell control-socket=%s\n' "$control_socket"
+              printf 'terminal-cell data-socket=%s\n' "$data_socket"
               printf 'terminal-cell initial transcript=%s\n' "$session/transcript.initial"
               printf 'close with: nix run .#close-ghostty-agent-sessions\n'
             '';
@@ -639,9 +651,14 @@
                 session="$("$target_debug/terminal-cell-session-select" --session "$session")"
               fi
 
-              socket="''${TERMINAL_CELL_SOCKET:-$session/cell.sock}"
-              if [ ! -S "$socket" ]; then
-                printf 'terminal-cell socket is missing: %s\n' "$socket" >&2
+              control_socket="''${TERMINAL_CELL_CONTROL_SOCKET:-$session/control.sock}"
+              data_socket="''${TERMINAL_CELL_DATA_SOCKET:-$session/data.sock}"
+              if [ ! -S "$control_socket" ]; then
+                printf 'terminal-cell control socket is missing: %s\n' "$control_socket" >&2
+                exit 1
+              fi
+              if [ ! -S "$data_socket" ]; then
+                printf 'terminal-cell data socket is missing: %s\n' "$data_socket" >&2
                 exit 1
               fi
               session_name="$(basename "$session")"
@@ -673,7 +690,7 @@
               }
               trap cleanup_on_failure EXIT
 
-              setsid "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --socket "$socket" --ready-file "$ready" > "$session/ghostty.reattach.stdout" 2> "$session/ghostty.reattach.stderr" &
+              setsid "$ghostty_bin" --class="$ghostty_class" -e "$target_debug/terminal-cell-view" --control-socket "$control_socket" --data-socket "$data_socket" --ready-file "$ready" > "$session/ghostty.reattach.stdout" 2> "$session/ghostty.reattach.stderr" &
               ghostty_pid="$!"
               printf '%s\n' "$ghostty_pid" > "$session/ghostty.pid"
 
@@ -688,7 +705,8 @@
               printf '%s\n' "$view_line"
               printf 'terminal-cell pi session=%s\n' "$session"
               printf 'terminal-cell name=%s\n' "$session_name"
-              printf 'terminal-cell socket=%s\n' "$socket"
+              printf 'terminal-cell control-socket=%s\n' "$control_socket"
+              printf 'terminal-cell data-socket=%s\n' "$data_socket"
               printf 'terminal-cell ghostty pid=%s\n' "$ghostty_pid"
             '';
           };
@@ -708,7 +726,7 @@
               fi
 
               found=0
-              printf 'NAME\tSTATE\tDAEMON\tGHOSTTY\tSOCKET\tSESSION\n'
+              printf 'NAME\tSTATE\tDAEMON\tGHOSTTY\tCONTROL\tDATA\tSESSION\n'
               for session in "$session_root"/session-*; do
                 [ -d "$session" ] || continue
                 found=1
@@ -718,7 +736,8 @@
                   name="$(head -n 1 "$session/session.name")"
                 fi
 
-                socket="$session/cell.sock"
+                control_socket="$session/control.sock"
+                data_socket="$session/data.sock"
                 daemon_pid=""
                 if [ -s "$session/daemon.pid" ]; then
                   daemon_pid="$(cat "$session/daemon.pid")"
@@ -729,11 +748,12 @@
                 fi
 
                 state="stale"
-                if [ -S "$socket" ] && [ -n "$daemon_pid" ] && kill -0 "$daemon_pid" 2>/dev/null; then
+                if [ -S "$control_socket" ] && [ -S "$data_socket" ] \
+                  && [ -n "$daemon_pid" ] && kill -0 "$daemon_pid" 2>/dev/null; then
                   state="alive"
                 fi
 
-                printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$daemon_pid" "$ghostty_pid" "$socket" "$session"
+                printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$state" "$daemon_pid" "$ghostty_pid" "$control_socket" "$data_socket" "$session"
               done
 
               if [ "$found" -eq 0 ]; then
@@ -774,7 +794,8 @@
                 fi
                 for candidate in "$session_root"/session-*; do
                   [ -d "$candidate" ] || continue
-                  [ -S "$candidate/cell.sock" ] || continue
+                  [ -S "$candidate/control.sock" ] || continue
+                  [ -S "$candidate/data.sock" ] || continue
                   if [ -z "$session" ] || [ "$candidate" -nt "$session" ]; then
                     session="$candidate"
                   fi

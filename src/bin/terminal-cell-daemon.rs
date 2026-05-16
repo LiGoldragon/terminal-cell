@@ -27,23 +27,29 @@ use terminal_cell::{
 type TerminalDaemonResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 struct DaemonArguments {
-    socket: PathBuf,
+    control_socket: PathBuf,
+    data_socket: PathBuf,
     command: TerminalCommand,
 }
 
 impl DaemonArguments {
     fn from_environment() -> TerminalDaemonResult<Self> {
         let mut arguments = env::args().skip(1);
-        let mut socket = None;
+        let mut control_socket = None;
+        let mut data_socket = None;
         let mut command = None;
 
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => {
-                    socket =
-                        Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-daemon requires a path after --socket",
-                        )?));
+                "--control-socket" => {
+                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-daemon requires a path after --control-socket",
+                    )?));
+                }
+                "--data-socket" => {
+                    data_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-daemon requires a path after --data-socket",
+                    )?));
                 }
                 "--" => {
                     let program = arguments
@@ -60,27 +66,36 @@ impl DaemonArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-daemon requires --socket <path>")?,
+            control_socket: control_socket
+                .ok_or("terminal-cell-daemon requires --control-socket <path>")?,
+            data_socket: data_socket
+                .ok_or("terminal-cell-daemon requires --data-socket <path>")?,
             command: command.ok_or("terminal-cell-daemon requires -- <command> [args...]")?,
         })
     }
 
     fn into_daemon(self) -> TerminalCellDaemon {
         TerminalCellDaemon::new(
-            self.socket,
+            self.control_socket,
+            self.data_socket,
             TerminalLaunch::new(self.command, TerminalSize::new(24, 80)),
         )
     }
 }
 
 struct TerminalCellDaemon {
-    socket: PathBuf,
+    control_socket: PathBuf,
+    data_socket: PathBuf,
     launch: TerminalLaunch,
 }
 
 impl TerminalCellDaemon {
-    fn new(socket: PathBuf, launch: TerminalLaunch) -> Self {
-        Self { socket, launch }
+    fn new(control_socket: PathBuf, data_socket: PathBuf, launch: TerminalLaunch) -> Self {
+        Self {
+            control_socket,
+            data_socket,
+            launch,
+        }
     }
 
     async fn run(self) -> TerminalDaemonResult<()> {
@@ -93,16 +108,41 @@ impl TerminalCellDaemon {
             .await
             .map_err(|error| format!("terminal cell startup failed: {error}"))?;
 
-        let listener = TerminalSocketFile::new(self.socket.as_path()).bind_listener()?;
+        let control_listener =
+            TerminalSocketFile::new(self.control_socket.as_path()).bind_listener()?;
+        let data_listener = TerminalSocketFile::new(self.data_socket.as_path()).bind_listener()?;
         let runtime = Handle::current();
 
-        println!("terminal-cell-daemon socket={}", self.socket.display());
+        println!(
+            "terminal-cell-daemon control-socket={} data-socket={}",
+            self.control_socket.display(),
+            self.data_socket.display()
+        );
         io::stdout().flush()?;
 
-        tokio::task::spawn_blocking(move || {
-            TerminalCellDaemonLoop::new(listener, terminal, input_port, output_port, runtime).run()
-        })
-        .await??;
+        let signal_state = Arc::new(Mutex::new(TerminalSignalControlState::new()));
+
+        let control_loop = TerminalControlPlaneLoop::new(
+            control_listener,
+            terminal.clone(),
+            input_port.clone(),
+            signal_state,
+            runtime.clone(),
+        );
+        let data_loop = TerminalDataPlaneLoop::new(
+            data_listener,
+            terminal.clone(),
+            input_port,
+            output_port,
+            runtime.clone(),
+        );
+
+        let control_task = tokio::task::spawn_blocking(move || control_loop.run());
+        let data_task = tokio::task::spawn_blocking(move || data_loop.run());
+
+        let (control_result, data_result) = tokio::join!(control_task, data_task);
+        control_result??;
+        data_result??;
         Ok(())
     }
 }
@@ -119,7 +159,7 @@ impl<'path> TerminalSocketFile<'path> {
     fn bind_listener(&self) -> io::Result<UnixListener> {
         self.prepare()?;
         let listener = UnixListener::bind(self.path)?;
-        self.apply_control_socket_mode()?;
+        self.apply_socket_mode()?;
         Ok(listener)
     }
 
@@ -144,34 +184,32 @@ impl<'path> TerminalSocketFile<'path> {
         }
     }
 
-    fn apply_control_socket_mode(&self) -> io::Result<()> {
+    fn apply_socket_mode(&self) -> io::Result<()> {
         fs::set_permissions(self.path, fs::Permissions::from_mode(0o600))
     }
 }
 
-struct TerminalCellDaemonLoop {
+struct TerminalControlPlaneLoop {
     listener: UnixListener,
     terminal: ActorRef<TerminalCell>,
     input_port: TerminalInputPort,
-    output_port: TerminalOutputPort,
     signal_state: Arc<Mutex<TerminalSignalControlState>>,
     runtime: Handle,
 }
 
-impl TerminalCellDaemonLoop {
+impl TerminalControlPlaneLoop {
     fn new(
         listener: UnixListener,
         terminal: ActorRef<TerminalCell>,
         input_port: TerminalInputPort,
-        output_port: TerminalOutputPort,
+        signal_state: Arc<Mutex<TerminalSignalControlState>>,
         runtime: Handle,
     ) -> Self {
         Self {
             listener,
             terminal,
             input_port,
-            output_port,
-            signal_state: Arc::new(Mutex::new(TerminalSignalControlState::new())),
+            signal_state,
             runtime,
         }
     }
@@ -199,23 +237,21 @@ impl TerminalCellDaemonLoop {
             };
             let terminal = self.terminal.clone();
             let input_port = self.input_port.clone();
-            let output_port = self.output_port.clone();
             let signal_state = self.signal_state.clone();
             let runtime = self.runtime.clone();
             thread::Builder::new()
-                .name("terminal-cell-connection".to_string())
+                .name("terminal-cell-control-connection".to_string())
                 .spawn(move || {
-                    if let Err(error) = TerminalCellConnection::new(
+                    if let Err(error) = TerminalControlConnection::new(
                         stream,
                         terminal,
                         input_port,
-                        output_port,
                         signal_state,
                         runtime,
                     )
                     .run()
                     {
-                        eprintln!("terminal cell connection failed: {error}");
+                        eprintln!("terminal cell control connection failed: {error}");
                     }
                 })?;
         }
@@ -223,48 +259,55 @@ impl TerminalCellDaemonLoop {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::TerminalSocketFile;
-    use std::fs;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
+struct TerminalDataPlaneLoop {
+    listener: UnixListener,
+    terminal: ActorRef<TerminalCell>,
+    input_port: TerminalInputPort,
+    output_port: TerminalOutputPort,
+    runtime: Handle,
+}
 
-    struct SocketPathFixture {
-        path: PathBuf,
-        root: PathBuf,
-    }
-
-    impl SocketPathFixture {
-        fn new(name: &str) -> Self {
-            let root =
-                std::env::temp_dir().join(format!("terminal-cell-{name}-{}", std::process::id()));
-            let _ = fs::remove_dir_all(&root);
-            fs::create_dir_all(&root).expect("socket fixture root created");
-
-            Self {
-                path: root.join("cell.sock"),
-                root,
-            }
+impl TerminalDataPlaneLoop {
+    fn new(
+        listener: UnixListener,
+        terminal: ActorRef<TerminalCell>,
+        input_port: TerminalInputPort,
+        output_port: TerminalOutputPort,
+        runtime: Handle,
+    ) -> Self {
+        Self {
+            listener,
+            terminal,
+            input_port,
+            output_port,
+            runtime,
         }
     }
 
-    impl Drop for SocketPathFixture {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.root);
+    fn run(self) -> io::Result<()> {
+        for incoming in self.listener.incoming() {
+            let stream = incoming?;
+            let terminal = self.terminal.clone();
+            let input_port = self.input_port.clone();
+            let output_port = self.output_port.clone();
+            let runtime = self.runtime.clone();
+            thread::Builder::new()
+                .name("terminal-cell-data-connection".to_string())
+                .spawn(move || {
+                    if let Err(error) = TerminalDataConnection::new(
+                        stream,
+                        terminal,
+                        input_port,
+                        output_port,
+                        runtime,
+                    )
+                    .run()
+                    {
+                        eprintln!("terminal cell data connection failed: {error}");
+                    }
+                })?;
         }
-    }
-
-    #[test]
-    fn terminal_socket_file_bind_listener_applies_mode() {
-        let fixture = SocketPathFixture::new("socket-mode");
-        let _listener = TerminalSocketFile::new(fixture.path.as_path())
-            .bind_listener()
-            .expect("socket listener binds");
-        let metadata = fs::metadata(fixture.path.as_path()).expect("socket metadata readable");
-        let mode = metadata.permissions().mode() & 0o777;
-
-        assert_eq!(mode, 0o600);
+        Ok(())
     }
 }
 
@@ -344,21 +387,23 @@ impl TerminalSignalControlState {
     }
 }
 
-struct TerminalCellConnection {
+/// A control-plane connection. Carries every kind of request *except*
+/// `Attach`: an attach request on this socket is an architectural-truth
+/// violation and is explicitly rejected with the `ATTACH_REJECTED` reply
+/// so the wire boundary stays clean.
+struct TerminalControlConnection {
     stream: UnixStream,
     terminal: ActorRef<TerminalCell>,
     input_port: TerminalInputPort,
-    output_port: TerminalOutputPort,
     signal_state: Arc<Mutex<TerminalSignalControlState>>,
     runtime: Handle,
 }
 
-impl TerminalCellConnection {
+impl TerminalControlConnection {
     fn new(
         stream: UnixStream,
         terminal: ActorRef<TerminalCell>,
         input_port: TerminalInputPort,
-        output_port: TerminalOutputPort,
         signal_state: Arc<Mutex<TerminalSignalControlState>>,
         runtime: Handle,
     ) -> Self {
@@ -366,7 +411,6 @@ impl TerminalCellConnection {
             stream,
             terminal,
             input_port,
-            output_port,
             signal_state,
             runtime,
         }
@@ -377,7 +421,7 @@ impl TerminalCellConnection {
         match request {
             SocketRequest::Capture => self.write_snapshot(),
             SocketRequest::SubscribeFromBeginning => self.stream_subscription(),
-            SocketRequest::Attach => self.attach_viewer(),
+            SocketRequest::Attach => self.reject_attach_on_control_plane(),
             SocketRequest::Input(input) => self.write_input(input),
             SocketRequest::CloseHumanInput => self.close_human_input(),
             SocketRequest::OpenHumanInput(lease) => self.open_human_input(lease),
@@ -387,6 +431,16 @@ impl TerminalCellConnection {
             SocketRequest::WorkerObservation => self.write_worker_observation(),
             SocketRequest::Signal(request) => self.handle_signal_request(request),
         }
+    }
+
+    fn reject_attach_on_control_plane(&mut self) -> io::Result<()> {
+        SocketReplyWriter::new(&mut self.stream).write_attach_rejected(
+            "control socket does not accept viewer attach; use the data socket",
+        )?;
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "attach request arrived on terminal-cell control socket",
+        ))
     }
 
     fn write_snapshot(&mut self) -> io::Result<()> {
@@ -405,65 +459,6 @@ impl TerminalCellConnection {
             if self.stream.flush().is_err() {
                 break;
             }
-        }
-        Ok(())
-    }
-
-    fn attach_viewer(&mut self) -> io::Result<()> {
-        let lease = match self.output_port.reserve_viewer() {
-            Ok(lease) => lease,
-            Err(TerminalCellError::ViewerAlreadyAttached) => {
-                SocketReplyWriter::new(&mut self.stream)
-                    .write_attach_rejected("terminal cell already has an attached viewer")?;
-                return Ok(());
-            }
-            Err(error) => return Err(Self::terminal_error(error)),
-        };
-
-        let result = self.complete_viewer_attach(lease);
-        if result.is_err() {
-            let _ = self.output_port.detach(lease);
-        }
-        result
-    }
-
-    fn complete_viewer_attach(&mut self, lease: TerminalViewerLease) -> io::Result<()> {
-        SocketReplyWriter::new(&mut self.stream).write_attach_accepted()?;
-
-        let snapshot = self.snapshot()?;
-        if !snapshot.bytes().is_empty() {
-            self.stream.write_all(snapshot.bytes())?;
-            self.stream.flush()?;
-        }
-
-        self.output_port
-            .activate_viewer(lease, self.stream.try_clone()?)
-            .map_err(Self::terminal_error)?;
-
-        self.record_worker_started(TerminalWorkerKind::AttachConnectionPump);
-        let result = self.pump_viewer_input();
-        let reason = match &result {
-            Ok(()) => TerminalWorkerStop::AttachConnectionClosed,
-            Err(error) => TerminalWorkerStop::AttachConnectionFailed(error.to_string()),
-        };
-        self.record_worker_stopped(TerminalWorkerKind::AttachConnectionPump, reason);
-        let _ = self.output_port.detach(lease);
-        result
-    }
-
-    fn pump_viewer_input(&mut self) -> io::Result<()> {
-        let mut buffer = [0_u8; 8192];
-        loop {
-            let count = self.stream.read(&mut buffer)?;
-            if count == 0 {
-                break;
-            }
-            self.input_port
-                .accept(TerminalInput::new(
-                    buffer[..count].to_vec(),
-                    InputSource::Viewer,
-                ))
-                .map_err(Self::terminal_error)?;
         }
         Ok(())
     }
@@ -989,6 +984,125 @@ impl TerminalCellConnection {
     fn terminal_error(error: terminal_cell::TerminalCellError) -> io::Error {
         io::Error::new(io::ErrorKind::BrokenPipe, error.to_string())
     }
+}
+
+/// A data-plane connection. Carries only an attach handshake followed by
+/// raw bidirectional bytes between the viewer and the child PTY. The
+/// connection rejects every kind of request other than `Attach` with an
+/// explicit attach-rejection reply so the wire boundary stays clean.
+struct TerminalDataConnection {
+    stream: UnixStream,
+    terminal: ActorRef<TerminalCell>,
+    input_port: TerminalInputPort,
+    output_port: TerminalOutputPort,
+    runtime: Handle,
+}
+
+impl TerminalDataConnection {
+    fn new(
+        stream: UnixStream,
+        terminal: ActorRef<TerminalCell>,
+        input_port: TerminalInputPort,
+        output_port: TerminalOutputPort,
+        runtime: Handle,
+    ) -> Self {
+        Self {
+            stream,
+            terminal,
+            input_port,
+            output_port,
+            runtime,
+        }
+    }
+
+    fn run(&mut self) -> io::Result<()> {
+        let request = SocketRequestReader::new(&mut self.stream).read_request()?;
+        match request {
+            SocketRequest::Attach => self.attach_viewer(),
+            other => self.reject_non_attach_on_data_plane(other),
+        }
+    }
+
+    fn reject_non_attach_on_data_plane(&mut self, _request: SocketRequest) -> io::Result<()> {
+        SocketReplyWriter::new(&mut self.stream).write_attach_rejected(
+            "data socket only accepts viewer attach; use the control socket",
+        )?;
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "non-attach request arrived on terminal-cell data socket",
+        ))
+    }
+
+    fn attach_viewer(&mut self) -> io::Result<()> {
+        let lease = match self.output_port.reserve_viewer() {
+            Ok(lease) => lease,
+            Err(TerminalCellError::ViewerAlreadyAttached) => {
+                SocketReplyWriter::new(&mut self.stream)
+                    .write_attach_rejected("terminal cell already has an attached viewer")?;
+                return Ok(());
+            }
+            Err(error) => return Err(Self::terminal_error(error)),
+        };
+
+        let result = self.complete_viewer_attach(lease);
+        if result.is_err() {
+            let _ = self.output_port.detach(lease);
+        }
+        result
+    }
+
+    fn complete_viewer_attach(&mut self, lease: TerminalViewerLease) -> io::Result<()> {
+        SocketReplyWriter::new(&mut self.stream).write_attach_accepted()?;
+
+        let snapshot = self.snapshot()?;
+        if !snapshot.bytes().is_empty() {
+            self.stream.write_all(snapshot.bytes())?;
+            self.stream.flush()?;
+        }
+
+        self.output_port
+            .activate_viewer(lease, self.stream.try_clone()?)
+            .map_err(Self::terminal_error)?;
+
+        self.record_worker_started(TerminalWorkerKind::AttachConnectionPump);
+        let result = self.pump_viewer_input();
+        let reason = match &result {
+            Ok(()) => TerminalWorkerStop::AttachConnectionClosed,
+            Err(error) => TerminalWorkerStop::AttachConnectionFailed(error.to_string()),
+        };
+        self.record_worker_stopped(TerminalWorkerKind::AttachConnectionPump, reason);
+        let _ = self.output_port.detach(lease);
+        result
+    }
+
+    fn pump_viewer_input(&mut self) -> io::Result<()> {
+        let mut buffer = [0_u8; 8192];
+        loop {
+            let count = self.stream.read(&mut buffer)?;
+            if count == 0 {
+                break;
+            }
+            self.input_port
+                .accept(TerminalInput::new(
+                    buffer[..count].to_vec(),
+                    InputSource::Viewer,
+                ))
+                .map_err(Self::terminal_error)?;
+        }
+        Ok(())
+    }
+
+    fn snapshot(&self) -> io::Result<terminal_cell::TranscriptSnapshot> {
+        // The data plane reads the transcript snapshot through the actor
+        // only to replay history bytes once at attach time. Bytes after
+        // replay flow directly from the PTY-output fanout to the data
+        // stream, never through the actor mailbox.
+        let reply = self
+            .runtime
+            .block_on(async { self.terminal.ask(TranscriptSnapshotRequest).await })
+            .map_err(Self::actor_error)?;
+        Ok(reply)
+    }
 
     fn record_worker_started(&self, worker: TerminalWorkerKind) {
         let _ = self
@@ -1003,6 +1117,14 @@ impl TerminalCellConnection {
             .tell(TerminalWorkerLifecycle::Stopped { worker, reason })
             .try_send();
     }
+
+    fn actor_error(error: impl std::fmt::Display) -> io::Error {
+        io::Error::new(io::ErrorKind::BrokenPipe, error.to_string())
+    }
+
+    fn terminal_error(error: terminal_cell::TerminalCellError) -> io::Error {
+        io::Error::new(io::ErrorKind::BrokenPipe, error.to_string())
+    }
 }
 
 #[tokio::main]
@@ -1015,5 +1137,50 @@ async fn main() {
     if let Err(error) = result {
         eprintln!("terminal-cell-daemon failed: {error}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalSocketFile;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    struct SocketPathFixture {
+        path: PathBuf,
+        root: PathBuf,
+    }
+
+    impl SocketPathFixture {
+        fn new(name: &str) -> Self {
+            let root =
+                std::env::temp_dir().join(format!("terminal-cell-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&root);
+            fs::create_dir_all(&root).expect("socket fixture root created");
+
+            Self {
+                path: root.join("control.sock"),
+                root,
+            }
+        }
+    }
+
+    impl Drop for SocketPathFixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[test]
+    fn terminal_socket_file_bind_listener_applies_mode() {
+        let fixture = SocketPathFixture::new("socket-mode");
+        let _listener = TerminalSocketFile::new(fixture.path.as_path())
+            .bind_listener()
+            .expect("socket listener binds");
+        let metadata = fs::metadata(fixture.path.as_path()).expect("socket metadata readable");
+        let mode = metadata.permissions().mode() & 0o777;
+
+        assert_eq!(mode, 0o600);
     }
 }

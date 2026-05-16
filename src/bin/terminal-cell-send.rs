@@ -7,23 +7,22 @@ use terminal_cell::TerminalCellSocketClient;
 type SendResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 struct SendArguments {
-    socket: PathBuf,
+    control_socket: PathBuf,
     input: Vec<u8>,
 }
 
 impl SendArguments {
     fn from_environment() -> SendResult<Self> {
         let mut arguments = env::args().skip(1);
-        let mut socket = None;
+        let mut control_socket = None;
         let mut input = None;
 
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => {
-                    socket =
-                        Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-send requires a path after --socket",
-                        )?));
+                "--control-socket" => {
+                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-send requires a path after --control-socket",
+                    )?));
                 }
                 "--line" => {
                     let line = arguments
@@ -46,13 +45,14 @@ impl SendArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-send requires --socket <path>")?,
+            control_socket: control_socket
+                .ok_or("terminal-cell-send requires --control-socket <path>")?,
             input: input.ok_or("terminal-cell-send requires --line <text> or --bytes <text>")?,
         })
     }
 
     fn into_command(self) -> SendCommand {
-        SendCommand::new(self.socket, self.input)
+        SendCommand::new(self.control_socket, self.input)
     }
 }
 
@@ -62,9 +62,9 @@ struct SendCommand {
 }
 
 impl SendCommand {
-    fn new(socket: PathBuf, input: Vec<u8>) -> Self {
+    fn new(control_socket: PathBuf, input: Vec<u8>) -> Self {
         Self {
-            client: TerminalCellSocketClient::new(socket),
+            client: TerminalCellSocketClient::for_control_only(control_socket),
             input,
         }
     }

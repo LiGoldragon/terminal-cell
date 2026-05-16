@@ -13,7 +13,8 @@ use terminal_cell::{TerminalCellSocketClient, TerminalSize};
 type ViewResult<T> = Result<T, Box<dyn Error + Send + Sync>>;
 
 struct ViewArguments {
-    socket: PathBuf,
+    control_socket: PathBuf,
+    data_socket: PathBuf,
     mode: ViewMode,
     ready_file: Option<PathBuf>,
 }
@@ -21,17 +22,22 @@ struct ViewArguments {
 impl ViewArguments {
     fn from_environment() -> ViewResult<Self> {
         let mut arguments = env::args().skip(1);
-        let mut socket = None;
+        let mut control_socket = None;
+        let mut data_socket = None;
         let mut mode = ViewMode::Interactive;
         let mut ready_file = None;
 
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
-                "--socket" => {
-                    socket =
-                        Some(PathBuf::from(arguments.next().ok_or(
-                            "terminal-cell-view requires a path after --socket",
-                        )?));
+                "--control-socket" => {
+                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-view requires a path after --control-socket",
+                    )?));
+                }
+                "--data-socket" => {
+                    data_socket = Some(PathBuf::from(arguments.next().ok_or(
+                        "terminal-cell-view requires a path after --data-socket",
+                    )?));
                 }
                 "--once" => mode = ViewMode::Snapshot,
                 "--ready-file" => {
@@ -45,14 +51,17 @@ impl ViewArguments {
         }
 
         Ok(Self {
-            socket: socket.ok_or("terminal-cell-view requires --socket <path>")?,
+            control_socket: control_socket
+                .ok_or("terminal-cell-view requires --control-socket <path>")?,
+            data_socket: data_socket
+                .ok_or("terminal-cell-view requires --data-socket <path>")?,
             mode,
             ready_file,
         })
     }
 
     fn into_viewer(self) -> TerminalViewer {
-        TerminalViewer::new(self.socket, self.mode, self.ready_file)
+        TerminalViewer::new(self.control_socket, self.data_socket, self.mode, self.ready_file)
     }
 }
 
@@ -69,9 +78,14 @@ struct TerminalViewer {
 }
 
 impl TerminalViewer {
-    fn new(socket: PathBuf, mode: ViewMode, ready_file: Option<PathBuf>) -> Self {
+    fn new(
+        control_socket: PathBuf,
+        data_socket: PathBuf,
+        mode: ViewMode,
+        ready_file: Option<PathBuf>,
+    ) -> Self {
         Self {
-            client: TerminalCellSocketClient::new(socket),
+            client: TerminalCellSocketClient::new(control_socket, data_socket),
             mode,
             readiness: TerminalViewerReadiness::new(ready_file),
         }

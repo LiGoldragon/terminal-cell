@@ -73,10 +73,13 @@ Command-line tools and GUI frontends are clients.
 
 This component has no Sema database. A running session is discoverable through
 its runtime directory under `${XDG_RUNTIME_DIR:-/tmp}/terminal-cell/session-*`.
-That directory currently holds `cell.sock`, pid files, `session.env`,
-`session.name`, and diagnostic logs. The current single `cell.sock` is a
-transitional implementation detail. The production runtime directory holds two
-cell sockets: `control.sock` and `data.sock`. The list and rename tools inspect
+That directory holds **two distinct listeners** — `control.sock` and
+`data.sock` — alongside pid files, `session.env`, `session.name`, and
+diagnostic logs. `control.sock` carries length-prefixed
+`signal-persona-terminal` frames and the byte-tag CLI protocol at mode 0600;
+`data.sock` carries raw viewer bytes wrapped in only the minimal attach,
+detach, resize, exit, and accept/reject framing needed to move bytes between
+viewer terminal and child PTY at mode 0600. The list and rename tools inspect
 or update those files; they are a local convenience registry, not durable
 system truth.
 
@@ -207,7 +210,16 @@ These are the checked-in components:
 - `TerminalOutputPort` - typed ingress to the PTY-output fanout used by the
   daemon attach path.
 - `TerminalOutputFanout` - non-actor thread that writes PTY output to attached
-  viewer before sending the same bytes to the transcript actor.
+  viewer before sending the same bytes to the transcript actor. **Transitional**:
+  the current shape serializes viewer write with transcript append on the same
+  fanout path. The destination splits this into two components:
+    - `ViewerFanout` - real-time path. PTY reader hands bytes to the attached
+      viewer write and returns to the read loop immediately. Carries no
+      transcript work.
+    - `TranscriptScriber` - decoupled path. Receives a notification from
+      `ViewerFanout` and appends to the transcript asynchronously. Owns a
+      bounded queue with overflow-drop-oldest discipline so a slow scriber
+      sheds load instead of pushing backpressure into the viewer path.
 - `TerminalViewerLease` - active-viewer authority returned by the output fanout
   and released when the attach stream ends.
 - `TranscriptSubscription` - replay plus live delta receiver for diagnostics.
@@ -286,6 +298,11 @@ These are the checked-in components:
 - The live attach path does not wait on actor handlers, transcript append,
   screen projection, waiters, or Persona decisions.
 - A slow transcript subscriber does not block the attached viewer's output.
+- A slow transcript subscriber does not block the attached viewer. Witness:
+  1000 PTY output bytes arrive at the viewer in under 100ms despite 50ms per
+  transcript append.
+- Signal control never blocks viewer attach. Witness: viewer attach completes
+  in under 10ms regardless of pending control frames.
 - High-volume child output still reaches the attached viewer while transcript
   subscribers are slow.
 - High-volume child output does not starve attached input. Keyboard bytes sent
@@ -326,6 +343,7 @@ Current useful witnesses:
 - `daemon_accepts_programmatic_prompt_and_capture_reads_transcript`
 - `attach_stream_is_raw_bidirectional_byte_path`
 - `input_gate_holds_human_bytes_during_programmatic_injection`
+- `input_gate_serializes_two_harness_lease_attempts`
 - `signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes`
 - `signal_dirty_prompt_rejects_write_injection_by_default`
 - `signal_worker_lifecycle_subscription_streams_snapshot_then_deltas`
@@ -336,8 +354,10 @@ Current useful witnesses:
 - `headless_resize_cli_resizes_without_attached_viewer`
 - `slow_transcript_subscriber_does_not_block_attached_viewer_output`
 - `attached_input_reaches_child_during_high_volume_output`
+- `attached_viewer_input_round_trip_does_not_traverse_actor_mailbox`
 - `daemon_worker_lifecycle_is_observable_over_socket`
 - `control_socket_mode_is_enforced_by_daemon`
+- `control_socket_rejects_attach_and_data_socket_rejects_non_attach`
 - `session_selector_skips_newer_stale_sessions`
 - `nix run .#production-witnesses`
 - `nix run .#live-coding-agent-witness`
