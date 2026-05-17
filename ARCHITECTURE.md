@@ -51,6 +51,11 @@ Three properties are load-bearing and tested with witnesses:
   listeners bound at daemon startup; the daemon rejects cross-plane traffic on
   each socket with a typed reply before any bytes cross.
 
+Production Persona consumes `terminal-cell` as a library inside the
+consolidated `persona-terminal-daemon`. The standalone `terminal-cell-daemon`
+remains the local development and stateful-test harness for this primitive; it
+is not the Persona engine boundary.
+
 ## 1 · Ownership
 
 The daemon owns the child process group, PTY, sockets, and session lifecycle.
