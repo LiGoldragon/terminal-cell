@@ -448,8 +448,8 @@ fn session_selector_skips_newer_stale_sessions() {
 
     let live_session = root.join("session-live");
     fs::create_dir_all(&live_session).expect("live session dir created");
-    let _live_control = UnixListener::bind(live_session.join("control.sock"))
-        .expect("live control socket bound");
+    let _live_control =
+        UnixListener::bind(live_session.join("control.sock")).expect("live control socket bound");
     let _live_data =
         UnixListener::bind(live_session.join("data.sock")).expect("live data socket bound");
     fs::write(
@@ -462,8 +462,8 @@ fn session_selector_skips_newer_stale_sessions() {
 
     let stale_session = root.join("session-stale");
     fs::create_dir_all(&stale_session).expect("stale session dir created");
-    let _stale_control = UnixListener::bind(stale_session.join("control.sock"))
-        .expect("stale control socket bound");
+    let _stale_control =
+        UnixListener::bind(stale_session.join("control.sock")).expect("stale control socket bound");
     let _stale_data =
         UnixListener::bind(stale_session.join("data.sock")).expect("stale data socket bound");
     fs::write(stale_session.join("daemon.pid"), "99999999").expect("stale daemon pid written");

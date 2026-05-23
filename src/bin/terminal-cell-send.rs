@@ -20,9 +20,10 @@ impl SendArguments {
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
                 "--control-socket" => {
-                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
-                        "terminal-cell-send requires a path after --control-socket",
-                    )?));
+                    control_socket =
+                        Some(PathBuf::from(arguments.next().ok_or(
+                            "terminal-cell-send requires a path after --control-socket",
+                        )?));
                 }
                 "--line" => {
                     let line = arguments

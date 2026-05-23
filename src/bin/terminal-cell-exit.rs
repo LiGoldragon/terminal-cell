@@ -19,9 +19,10 @@ impl ExitArguments {
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
                 "--control-socket" => {
-                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
-                        "terminal-cell-exit requires a path after --control-socket",
-                    )?));
+                    control_socket =
+                        Some(PathBuf::from(arguments.next().ok_or(
+                            "terminal-cell-exit requires a path after --control-socket",
+                        )?));
                 }
                 other => return Err(format!("unknown exit argument: {other}").into()),
             }

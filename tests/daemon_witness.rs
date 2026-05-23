@@ -212,9 +212,7 @@ fn control_socket_rejects_attach_and_data_socket_rejects_non_attach() {
         "control socket emits a typed attach rejection"
     );
     assert!(
-        control_attach_error
-            .to_string()
-            .contains("control socket"),
+        control_attach_error.to_string().contains("control socket"),
         "rejection names the violated plane: {control_attach_error}"
     );
 

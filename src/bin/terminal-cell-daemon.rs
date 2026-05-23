@@ -42,14 +42,16 @@ impl DaemonArguments {
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
                 "--control-socket" => {
-                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
-                        "terminal-cell-daemon requires a path after --control-socket",
-                    )?));
+                    control_socket =
+                        Some(PathBuf::from(arguments.next().ok_or(
+                            "terminal-cell-daemon requires a path after --control-socket",
+                        )?));
                 }
                 "--data-socket" => {
-                    data_socket = Some(PathBuf::from(arguments.next().ok_or(
-                        "terminal-cell-daemon requires a path after --data-socket",
-                    )?));
+                    data_socket =
+                        Some(PathBuf::from(arguments.next().ok_or(
+                            "terminal-cell-daemon requires a path after --data-socket",
+                        )?));
                 }
                 "--" => {
                     let program = arguments
@@ -68,8 +70,7 @@ impl DaemonArguments {
         Ok(Self {
             control_socket: control_socket
                 .ok_or("terminal-cell-daemon requires --control-socket <path>")?,
-            data_socket: data_socket
-                .ok_or("terminal-cell-daemon requires --data-socket <path>")?,
+            data_socket: data_socket.ok_or("terminal-cell-daemon requires --data-socket <path>")?,
             command: command.ok_or("terminal-cell-daemon requires -- <command> [args...]")?,
         })
     }
@@ -653,6 +654,17 @@ impl TerminalControlConnection {
             terminal_signal::TerminalRequest::TerminalWorkerLifecycleRetraction(token) => {
                 Ok(terminal_signal::TerminalRejected {
                     terminal: token.terminal,
+                    reason: terminal_signal::TerminalRejectionReason::TransportFailed,
+                }
+                .into())
+            }
+            terminal_signal::TerminalRequest::ListSessions(_) => Ok(terminal_signal::SessionList {
+                entries: Vec::new(),
+            }
+            .into()),
+            terminal_signal::TerminalRequest::ResolveSession(resolve) => {
+                Ok(terminal_signal::TerminalRejected {
+                    terminal: resolve.name,
                     reason: terminal_signal::TerminalRejectionReason::TransportFailed,
                 }
                 .into())

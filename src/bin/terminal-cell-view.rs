@@ -30,14 +30,16 @@ impl ViewArguments {
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
                 "--control-socket" => {
-                    control_socket = Some(PathBuf::from(arguments.next().ok_or(
-                        "terminal-cell-view requires a path after --control-socket",
-                    )?));
+                    control_socket =
+                        Some(PathBuf::from(arguments.next().ok_or(
+                            "terminal-cell-view requires a path after --control-socket",
+                        )?));
                 }
                 "--data-socket" => {
-                    data_socket = Some(PathBuf::from(arguments.next().ok_or(
-                        "terminal-cell-view requires a path after --data-socket",
-                    )?));
+                    data_socket =
+                        Some(PathBuf::from(arguments.next().ok_or(
+                            "terminal-cell-view requires a path after --data-socket",
+                        )?));
                 }
                 "--once" => mode = ViewMode::Snapshot,
                 "--ready-file" => {
@@ -53,15 +55,19 @@ impl ViewArguments {
         Ok(Self {
             control_socket: control_socket
                 .ok_or("terminal-cell-view requires --control-socket <path>")?,
-            data_socket: data_socket
-                .ok_or("terminal-cell-view requires --data-socket <path>")?,
+            data_socket: data_socket.ok_or("terminal-cell-view requires --data-socket <path>")?,
             mode,
             ready_file,
         })
     }
 
     fn into_viewer(self) -> TerminalViewer {
-        TerminalViewer::new(self.control_socket, self.data_socket, self.mode, self.ready_file)
+        TerminalViewer::new(
+            self.control_socket,
+            self.data_socket,
+            self.mode,
+            self.ready_file,
+        )
     }
 }
 

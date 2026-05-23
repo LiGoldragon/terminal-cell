@@ -44,10 +44,7 @@ impl TerminalCellSocketClient {
     /// `data_socket` must point at the daemon's `data.sock`. Reattach,
     /// attach, and viewer adapters use the data socket; everything else
     /// uses the control socket.
-    pub fn new(
-        control_socket: impl Into<PathBuf>,
-        data_socket: impl Into<PathBuf>,
-    ) -> Self {
+    pub fn new(control_socket: impl Into<PathBuf>, data_socket: impl Into<PathBuf>) -> Self {
         Self {
             control_socket: control_socket.into(),
             data_socket: Some(data_socket.into()),
