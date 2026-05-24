@@ -11,7 +11,7 @@ use std::thread;
 
 use kameo::actor::ActorRef;
 use regex::bytes::Regex;
-use signal_persona_terminal as terminal_signal;
+use signal_terminal as terminal_signal;
 use tokio::runtime::Handle;
 
 use terminal_cell::{
@@ -312,8 +312,8 @@ impl TerminalDataPlaneLoop {
     }
 }
 
-/// TRANSITIONAL: direct `signal-persona-terminal` handling in this daemon is a
-/// witness path while `persona-terminal` becomes the production Signal
+/// TRANSITIONAL: direct `signal-terminal` handling in this daemon is a
+/// witness path while `terminal` becomes the production Signal
 /// endpoint. Keep this state local to the terminal-cell daemon and do not grow
 /// it into a Persona-facing registry or policy owner.
 struct TerminalSignalControlState {
@@ -334,8 +334,8 @@ impl TerminalSignalControlState {
     fn register_prompt_pattern(
         &mut self,
         pattern: terminal_signal::PromptPattern,
-    ) -> terminal_signal::PromptPatternId {
-        let id = terminal_signal::PromptPatternId::new(format!(
+    ) -> terminal_signal::PromptPatternIdentifier {
+        let id = terminal_signal::PromptPatternIdentifier::new(format!(
             "prompt-pattern-{}",
             self.next_prompt_pattern
         ));
@@ -345,7 +345,7 @@ impl TerminalSignalControlState {
         id
     }
 
-    fn unregister_prompt_pattern(&mut self, id: &terminal_signal::PromptPatternId) {
+    fn unregister_prompt_pattern(&mut self, id: &terminal_signal::PromptPatternIdentifier) {
         self.prompt_patterns.remove(id.as_str());
     }
 
@@ -354,7 +354,7 @@ impl TerminalSignalControlState {
             .iter()
             .map(
                 |(pattern_id, pattern)| terminal_signal::PromptPatternEntry {
-                    pattern_id: terminal_signal::PromptPatternId::new(pattern_id.clone()),
+                    pattern_id: terminal_signal::PromptPatternIdentifier::new(pattern_id.clone()),
                     pattern: pattern.clone(),
                 },
             )
@@ -363,7 +363,7 @@ impl TerminalSignalControlState {
 
     fn prompt_pattern(
         &self,
-        id: &terminal_signal::PromptPatternId,
+        id: &terminal_signal::PromptPatternIdentifier,
     ) -> Option<terminal_signal::PromptPattern> {
         self.prompt_patterns.get(id.as_str()).cloned()
     }
@@ -676,7 +676,7 @@ impl TerminalControlConnection {
         &mut self,
         acquire: terminal_signal::AcquireInputGate,
     ) -> io::Result<terminal_signal::TerminalReply> {
-        let prompt_state = self.signal_prompt_state(acquire.prompt_pattern_id.as_ref())?;
+        let prompt_state = self.signal_prompt_state(acquire.prompt_pattern_identifier.as_ref())?;
         match self.input_port.close_human_input() {
             Ok(lease) => {
                 let signal_lease = Self::signal_lease(lease);
@@ -692,7 +692,7 @@ impl TerminalControlConnection {
             Err(TerminalCellError::InputGateAlreadyClosed(lease)) => {
                 Ok(terminal_signal::GateBusy {
                     terminal: acquire.terminal,
-                    current_holder: terminal_signal::InputGateLeaseId::new(
+                    current_holder: terminal_signal::InputGateLeaseIdentifier::new(
                         lease.sequence().into_u64(),
                     ),
                 }
@@ -821,7 +821,7 @@ impl TerminalControlConnection {
 
     fn signal_prompt_state(
         &self,
-        pattern_id: Option<&terminal_signal::PromptPatternId>,
+        pattern_id: Option<&terminal_signal::PromptPatternIdentifier>,
     ) -> io::Result<terminal_signal::PromptState> {
         let Some(pattern_id) = pattern_id else {
             return Ok(terminal_signal::PromptState::NotChecked);
@@ -892,7 +892,7 @@ impl TerminalControlConnection {
 
     fn signal_lease(lease: TerminalInputGateLease) -> terminal_signal::InputGateLease {
         terminal_signal::InputGateLease {
-            id: terminal_signal::InputGateLeaseId::new(lease.sequence().into_u64()),
+            id: terminal_signal::InputGateLeaseIdentifier::new(lease.sequence().into_u64()),
         }
     }
 

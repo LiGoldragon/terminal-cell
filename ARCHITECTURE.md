@@ -13,7 +13,7 @@ lifetime of the session. Around that PTY sit two distinct Unix listeners:
 
 ```mermaid
 flowchart LR
-    cli["terminal-cell-{send,capture,wait,exit,resize}<br/>+ persona-terminal control"]
+    cli["terminal-cell-{send,capture,wait,exit,resize}<br/>+ terminal control"]
     viewer["terminal-cell-view (visible viewer)"]
     daemon["terminal-cell-daemon"]
     pty["child PTY"]
@@ -31,7 +31,7 @@ flowchart LR
     transcript --> subscribers
 ```
 
-The control plane is `signal-persona-terminal`. The data plane is a raw byte
+The control plane is `signal-terminal`. The data plane is a raw byte
 pump with only enough framing for attach handshake, detach, resize, exit, and
 explicit accept/reject. Neither plane mode-shifts into the other: an attach
 request on `control.sock` is rejected with a typed `ATTACH_REJECTED` reply
@@ -52,7 +52,7 @@ Three properties are load-bearing and tested with witnesses:
   each socket with a typed reply before any bytes cross.
 
 Production Persona consumes `terminal-cell` as a library inside the
-consolidated `persona-terminal-daemon`. The standalone `terminal-cell-daemon`
+consolidated `terminal-daemon`. The standalone `terminal-cell-daemon`
 remains the local development and stateful-test harness for this primitive; it
 is not the Persona engine boundary.
 
@@ -71,15 +71,15 @@ are a local convenience registry, not durable system truth.
 ### 1.1 · Control plane
 
 `control.sock` (mode 0600) is the daemon's Signal endpoint. It accepts
-length-prefixed `signal-persona-terminal` frames and the byte-tag CLI
+length-prefixed `signal-terminal` frames and the byte-tag CLI
 protocol used by local command-line tools. Every effect that lives across
 time — prompt-pattern registration, input-gate leasing, write injection,
 transcript capture, resize, worker-lifecycle subscription, wait conditions —
 arrives here.
 
-Production Persona control flows through `persona-terminal`, which owns the
+Production Persona control flows through `terminal`, which owns the
 registry, prompt-pattern lifecycle, input-gate policy, injection decision, and
-component Sema state. The wire between `persona-terminal` and `terminal-cell`
+component Sema state. The wire between `terminal` and `terminal-cell`
 is Signal on this control socket. Local command-line clients
 (`terminal-cell-send`, `-capture`, `-wait`, `-exit`, `-resize`) speak the
 byte-tag protocol on the same socket because they exist for human and test
@@ -88,8 +88,8 @@ ergonomics. Both encodings are control-plane only.
 The stack the cell sits inside:
 
 ```text
-persona-terminal        registry, names, Sema state, lifecycle policy
-signal-persona-terminal typed terminal requests and events
+terminal                registry, names, Sema state, lifecycle policy
+signal-terminal         typed terminal requests and events
 terminal-cell           one child process group, one PTY, raw attach primitive
 viewer adapters         disposable visible windows around the terminal owner
 persona-system          OS facts such as focus and window state
@@ -171,7 +171,7 @@ rule.
 `AcquireInputGate` returns prompt state when a prompt pattern id is supplied.
 `WriteInjection` rejects dirty-prompt leases by default. The prompt-pattern
 registry in this repo is a witness aid for safe injection while
-`persona-terminal` evolves the production control surface; literal and regex
+`terminal` evolves the production control surface; literal and regex
 patterns are suffix checks, and trailing bytes after the last match make the
 prompt dirty. It does not make `terminal-cell` a harness semantic parser.
 
@@ -232,9 +232,9 @@ end of the stream.
   how many held human bytes were flushed when the gate reopened.
 - Prompt-pattern control — daemon-side registry used to check whether the
   transcript currently ends in a registered terminal-ready shape. Production
-  ownership of pattern lifecycle belongs in `persona-terminal`.
+  ownership of pattern lifecycle belongs in `terminal`.
 - Worker-lifecycle subscription — pushed initial worker snapshot plus live
-  worker-lifecycle deltas over `signal-persona-terminal`.
+  worker-lifecycle deltas over `signal-terminal`.
 - `TerminalExit` — recorded child status.
 - `TerminalCellSocketClient` — Unix-socket client used by command-line tools
   and viewers. Exposes `new(control_socket, data_socket)` for full clients and
@@ -384,7 +384,7 @@ reader; the witness section names the test that proves each.
 
 ### 3.9 · Wire and clients
 
-- The daemon's only typed-control surface is `signal-persona-terminal`. The
+- The daemon's only typed-control surface is `signal-terminal`. The
   byte-tag CLI protocol is a local convenience for command-line clients;
   Persona control is Signal.
 - CLIs are daemon clients; they do not own the runtime or transcript.

@@ -3,7 +3,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
 use signal_core::SignalVerb;
-use signal_persona_terminal::{
+use signal_terminal::{
     TerminalReply as SignalTerminalEvent, TerminalRequest as SignalTerminalRequest,
 };
 

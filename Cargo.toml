@@ -18,7 +18,7 @@ kameo        = { version = "0.20", features = ["macros"] }
 portable-pty = "0.8"
 regex        = "1"
 signal-core  = { git = "https://github.com/LiGoldragon/signal-core.git" }
-signal-persona-terminal = { git = "https://github.com/LiGoldragon/signal-persona-terminal.git", branch = "main" }
+signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", branch = "main" }
 signal-hook  = "0.3"
 thiserror    = "2"
 tokio        = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

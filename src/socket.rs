@@ -17,7 +17,7 @@ fn synthetic_exchange() -> ExchangeIdentifier {
     )
 }
 use signal_core::{StreamEventIdentifier, SubscriptionTokenInner};
-use signal_persona_terminal::{
+use signal_terminal::{
     TerminalEvent as SignalTerminalStreamEvent, TerminalFrame as SignalTerminalFrame,
     TerminalFrameBody as SignalFrameBody, TerminalReply as SignalTerminalEvent,
     TerminalRequest as SignalTerminalRequest,

@@ -16,13 +16,13 @@
 //! at `src/bin/terminal-cell-daemon.rs` still carries
 //! `Arc<Mutex<TerminalSignalControlState>>` for prompt-pattern
 //! registry sharing across socket-accept-loop tasks; this is
-//! known drift from the destination shape (the persona-terminal
+//! known drift from the destination shape (the terminal
 //! ARCH §1.5 names `TerminalSignalControl` as a Kameo actor
-//! owned in `persona-terminal`, not a shared lock in this
+//! owned in `terminal`, not a shared lock in this
 //! daemon). Fixing the drift requires moving signal-control
 //! ownership behind a Kameo actor in this repo's daemon, or
 //! retiring the daemon's signal-control surface in favor of
-//! the persona-terminal supervisor — an operator/designer
+//! the terminal supervisor — an operator/designer
 //! decision, not a witness scope.
 //!
 //! A future refactor that collapses `TerminalCell` to a marker

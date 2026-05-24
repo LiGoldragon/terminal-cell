@@ -847,9 +847,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-persona-terminal"
+name = "signal-sema"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-terminal.git?branch=main#db6e9cd15c483213f1223d9eb21f1643ee724d57"
+source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#1604cceb787389274127df7e3a273c164db61feb"
+dependencies = [
+ "nota-codec",
+ "rkyv",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "signal-terminal"
+version = "0.1.0"
+source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=main#1c61841a6e0d9e74bd5be38dd6f4f50cfde85d7a"
 dependencies = [
  "nota-codec",
  "nota-config",
@@ -857,16 +867,6 @@ dependencies = [
  "signal-core",
  "signal-persona",
  "signal-persona-origin",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "signal-sema"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#1604cceb787389274127df7e3a273c164db61feb"
-dependencies = [
- "nota-codec",
- "rkyv",
  "thiserror 2.0.18",
 ]
 
@@ -909,7 +909,7 @@ dependencies = [
  "regex",
  "signal-core",
  "signal-hook",
- "signal-persona-terminal",
+ "signal-terminal",
  "thiserror 2.0.18",
  "tokio",
  "vt100",

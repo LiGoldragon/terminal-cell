@@ -11,11 +11,11 @@ slow, dropped, and stalled keyboard interaction. The current view sends one
 attach request, pumps raw bytes over one Unix stream, and forwards terminal
 resize events to the daemon; transcript and actor logic observe around that
 path instead of rendering the human session through transcript subscriptions.
-The daemon also still accepts `signal-persona-terminal` control frames for
+The daemon also still accepts `signal-terminal` control frames for
 prompt patterns, input gate leases, write injection, capture/resize, and worker
 lifecycle subscription. That direct Signal endpoint is transitional witness
-code retained while `persona-terminal` takes over the production control plane.
-The production Persona endpoint is `persona-terminal`; attached viewer bytes
+code retained while `terminal` takes over the production control plane.
+The production Persona endpoint is `terminal`; attached viewer bytes
 remain raw.
 
 Do not treat automated Ghostty/Pi witnesses as final proof of a usable human
@@ -93,7 +93,7 @@ require an attached Ghostty view.
 This component does not have a Sema database. Session listing and naming are
 local runtime-directory metadata (`session.name`, `session.env`, pid files,
 `control.sock`, `data.sock`). The production registry belongs in a
-`persona-terminal` supervisor daemon with Sema-owned session state.
+`terminal` supervisor daemon with Sema-owned session state.
 
 On Niri, prevent the demo window from stealing focus with a targeted rule:
 

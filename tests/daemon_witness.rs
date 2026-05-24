@@ -7,7 +7,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
 use signal_core::SignalVerb;
-use signal_persona_terminal as terminal_signal;
+use signal_terminal as terminal_signal;
 use terminal_cell::{
     SocketReplyReader, SocketRequestWriter, TerminalCellSocketClient, TerminalSize,
 };
@@ -460,7 +460,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
             terminal_signal::AcquireInputGate {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 reason: terminal_signal::InputGateReason::new("witness injection"),
-                prompt_pattern_id: Some(pattern_id),
+                prompt_pattern_identifier: Some(pattern_id),
             }
             .into(),
         )
@@ -551,7 +551,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
             terminal_signal::AcquireInputGate {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 reason: terminal_signal::InputGateReason::new("dirty prompt witness"),
-                prompt_pattern_id: Some(pattern_id),
+                prompt_pattern_identifier: Some(pattern_id),
             }
             .into(),
         )
