@@ -1,8 +1,9 @@
 use std::io::{self, Read, Write};
 
-use signal_core::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Operation, Reply as SignalReply,
-    Request as SignalRequest, SessionEpoch, SignalVerb, SubReply,
+use signal_frame::{
+    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply as SignalReply,
+    Request as SignalRequest, SessionEpoch, StreamEventIdentifier, SubReply,
+    SubscriptionTokenInner,
 };
 
 /// terminal-cell's socket is a synchronous request/reply protocol with
@@ -16,7 +17,6 @@ fn synthetic_exchange() -> ExchangeIdentifier {
         LaneSequence::first(),
     )
 }
-use signal_core::{StreamEventIdentifier, SubscriptionTokenInner};
 use signal_terminal::{
     TerminalEvent as SignalTerminalStreamEvent, TerminalFrame as SignalTerminalFrame,
     TerminalFrameBody as SignalFrameBody, TerminalReply as SignalTerminalEvent,
@@ -64,17 +64,12 @@ pub enum SocketRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SignalSocketRequest {
-    verb: SignalVerb,
     payload: SignalTerminalRequest,
 }
 
 impl SignalSocketRequest {
-    fn new(verb: SignalVerb, payload: SignalTerminalRequest) -> Self {
-        Self { verb, payload }
-    }
-
-    pub const fn verb(&self) -> SignalVerb {
-        self.verb
+    fn new(payload: SignalTerminalRequest) -> Self {
+        Self { payload }
     }
 
     pub fn payload(&self) -> &SignalTerminalRequest {
@@ -172,11 +167,17 @@ where
         })?;
         match frame.into_body() {
             SignalFrameBody::Request { request, .. } => {
-                let operation = request.operations.into_head();
-                Ok(SocketRequest::Signal(SignalSocketRequest::new(
-                    operation.verb,
-                    operation.payload,
-                )))
+                let (payload, tail) = request.payloads.into_head_and_tail();
+                if !tail.is_empty() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!(
+                            "expected one signal request payload, got {}",
+                            tail.len() + 1
+                        ),
+                    ));
+                }
+                Ok(SocketRequest::Signal(SignalSocketRequest::new(payload)))
             }
             other => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -287,16 +288,10 @@ where
         self.writer.flush()
     }
 
-    pub fn write_signal_request(
-        &mut self,
-        verb: SignalVerb,
-        request: SignalTerminalRequest,
-    ) -> io::Result<()> {
+    pub fn write_signal_request(&mut self, request: SignalTerminalRequest) -> io::Result<()> {
         let frame = SignalTerminalFrame::new(SignalFrameBody::Request {
             exchange: synthetic_exchange(),
-            request: SignalRequest::from_operations(NonEmpty::single(Operation::new(
-                verb, request,
-            ))),
+            request: SignalRequest::from_payload(request),
         });
         let bytes = frame.encode_length_prefixed().map_err(|error| {
             io::Error::new(
@@ -391,7 +386,7 @@ where
         match frame.into_body() {
             SignalFrameBody::Reply { reply, .. } => match reply {
                 SignalReply::Accepted { per_operation, .. } => match per_operation.into_head() {
-                    SubReply::Ok { payload, .. } => Ok(payload),
+                    SubReply::Ok(payload) => Ok(payload),
                     other => Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         format!("expected ok sub-reply for signal event, got {other:?}"),
@@ -543,10 +538,7 @@ where
     }
 
     pub fn write_signal_event(&mut self, event: SignalTerminalEvent) -> io::Result<()> {
-        let reply = SignalReply::completed(NonEmpty::single(SubReply::Ok {
-            verb: SignalVerb::Subscribe,
-            payload: event,
-        }));
+        let reply = SignalReply::committed(NonEmpty::single(SubReply::Ok(event)));
         let frame = SignalTerminalFrame::new(SignalFrameBody::Reply {
             exchange: synthetic_exchange(),
             reply,

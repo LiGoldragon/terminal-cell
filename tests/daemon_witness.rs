@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-use signal_core::SignalVerb;
 use signal_terminal as terminal_signal;
 use terminal_cell::{
     SocketReplyReader, SocketRequestWriter, TerminalCellSocketClient, TerminalSize,
@@ -435,7 +434,6 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
     daemon.wait_for_text("agent-ready");
     let registered = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::RegisterPromptPattern {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 pattern: terminal_signal::PromptPattern::RegexSuffix {
@@ -456,7 +454,6 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
 
     let acquired = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::AcquireInputGate {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 reason: terminal_signal::InputGateReason::new("witness injection"),
@@ -480,7 +477,6 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
 
     let ack = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::WriteInjection {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 lease: lease.clone(),
@@ -497,7 +493,6 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
 
     let released = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::ReleaseInputGate {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 lease,
@@ -528,7 +523,6 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     daemon.wait_for_text("ready> dirty");
     let registered = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::RegisterPromptPattern {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 pattern: terminal_signal::PromptPattern::RegexSuffix {
@@ -547,7 +541,6 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 
     let acquired = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::AcquireInputGate {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 reason: terminal_signal::InputGateReason::new("dirty prompt witness"),
@@ -572,7 +565,6 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 
     let rejected = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::WriteInjection {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 lease: lease.clone(),
@@ -594,7 +586,6 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 
     let _ = client
         .send_signal_request(
-            SignalVerb::Assert,
             terminal_signal::ReleaseInputGate {
                 terminal: terminal_signal::TerminalName::new("operator"),
                 lease,
@@ -616,7 +607,6 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
         .expect("subscription read timeout set");
     SocketRequestWriter::new(&mut subscription)
         .write_signal_request(
-            SignalVerb::Subscribe,
             terminal_signal::SubscribeTerminalWorkerLifecycle {
                 terminal: terminal_signal::TerminalName::new("operator"),
             }

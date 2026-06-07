@@ -2,7 +2,6 @@ use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 
-use signal_core::SignalVerb;
 use signal_terminal::{
     TerminalReply as SignalTerminalEvent, TerminalRequest as SignalTerminalRequest,
 };
@@ -142,11 +141,10 @@ impl TerminalCellSocketClient {
 
     pub fn send_signal_request(
         &self,
-        verb: SignalVerb,
         request: SignalTerminalRequest,
     ) -> io::Result<SignalTerminalEvent> {
         let mut stream = self.connect_control()?;
-        SocketRequestWriter::new(&mut stream).write_signal_request(verb, request)?;
+        SocketRequestWriter::new(&mut stream).write_signal_request(request)?;
         SocketReplyReader::new(&mut stream).read_signal_event()
     }
 

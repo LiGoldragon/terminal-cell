@@ -4,8 +4,6 @@
 control plane and a raw byte data plane. Viewer latency lives off the actor
 mailbox; transcript work lives off the viewer path.*
 
----
-
 ## 0 · TL;DR
 
 A `terminal-cell-daemon` owns one child process group and one PTY for the
