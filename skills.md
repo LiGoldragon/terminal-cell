@@ -1,6 +1,6 @@
 # terminal-cell skill
 
-Work here on the low-level terminal cell primitive that `persona-terminal`
+Work here on the low-level terminal cell primitive that `terminal`
 uses for durable PTY/session ownership.
 
 ## Two-plane wire shape
@@ -59,7 +59,7 @@ the byte-tag CLI protocol, and `data.sock` for raw attached-viewer bytes.
 
 - Keep command-line tools as daemon clients. The daemon owns the Kameo
   `TerminalCell`; clients send socket requests.
-- `signal-persona-terminal` is the daemon's typed control surface. The
+- `signal-terminal` is the daemon's typed control surface. The
   byte-tag CLI protocol is a local convenience; Persona control is Signal.
 - Announce daemon readiness only after the actor startup hook has
   completed and both listeners are bound.

@@ -13,7 +13,7 @@ disposable viewers, and typed input/capture messages.
 
 This repo owns the terminal cell primitive only. It does not define Persona
 message semantics, harness identity, provider usage policy, or the
-`signal-persona-terminal` contract.
+`signal-terminal` contract.
 
 ## Rust
 
