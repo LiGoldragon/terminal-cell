@@ -104,6 +104,24 @@ impl DaemonFixture {
         String::from_utf8_lossy(&bytes).into_owned()
     }
 
+    fn wait_for_worker_observation(&self, expected: &str, timeout: Duration) -> String {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let latest = self
+                .client()
+                .worker_observation_text()
+                .expect("worker observation request succeeds");
+            if latest.contains(expected) {
+                return latest;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "worker observation includes {expected}; saw {latest:?}"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
     fn open_attach_stream(&self) -> UnixStream {
         self.client()
             .open_attach_stream()
@@ -299,10 +317,16 @@ fn slow_transcript_subscriber_does_not_block_attached_viewer_output() {
 /// than the budget below.
 #[test]
 fn slow_transcript_append_does_not_block_viewer_output() {
-    let daemon = DaemonFixture::spawn_command(
+    let daemon = DaemonFixture::spawn_shell(
         "transcript-append-decoupled-from-viewer",
-        &DaemonFixture::binary("output-flood-fixture"),
-        &[],
+        "printf 'flood-ready\\n'; \
+         IFS= read -r _; \
+         i=0; \
+         while [ \"$i\" -lt 100000 ]; do \
+           printf 'flood-%05d abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz\\n' \"$i\"; \
+           i=$((i + 1)); \
+         done; \
+         printf 'flood-complete\\n'",
     );
 
     let _slow_subscriber = daemon
@@ -310,6 +334,9 @@ fn slow_transcript_append_does_not_block_viewer_output() {
         .subscribe_from_beginning()
         .expect("slow transcript subscriber connects");
     let mut viewer = AttachedStream::new(daemon.open_attach_stream());
+    let ready = viewer.read_until("flood-ready", Duration::from_secs(2));
+    assert!(ready.contains("flood-ready"), "viewer saw readiness");
+    viewer.write_line("start-flood");
 
     // Read enough output to prove the viewer is flowing far past the
     // scriber's bounded queue capacity (1024 notices). If the viewer
@@ -320,10 +347,6 @@ fn slow_transcript_append_does_not_block_viewer_output() {
     let output = viewer.read_until("flood-05000", Duration::from_secs(5));
     let elapsed = started.elapsed();
 
-    assert!(
-        output.contains("flood-ready"),
-        "viewer saw the flood-ready marker"
-    );
     assert!(
         output.contains("flood-00000"),
         "viewer saw early flood lines despite scriber load"
@@ -427,10 +450,8 @@ fn daemon_worker_lifecycle_is_observable_over_socket() {
     let mut viewer = AttachedStream::new(daemon.open_attach_stream());
     viewer.read_until("agent-ready", Duration::from_secs(2));
 
-    let attached = daemon
-        .client()
-        .worker_observation_text()
-        .expect("worker observation request succeeds while a viewer is attached");
+    let attached =
+        daemon.wait_for_worker_observation("started:AttachConnectionPump", Duration::from_secs(1));
     assert!(
         attached.contains("started:AttachConnectionPump"),
         "attach pump lifecycle is reported through the daemon; saw {attached:?}"

@@ -77,12 +77,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
-name = "camino"
-version = "1.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e629a66d692cb9ff1a1c664e41771b3dcaf961985a9774c0eb0bd1b51cf60a48"
-
-[[package]]
 name = "cfg-if"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -417,29 +411,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "nota-codec"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/nota-codec.git?branch=main#f761421c383121a04df761a444a3778d1c0b137d"
+name = "nota-next"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#f0e435a629f8312b173b0f8564c17ee0a4001561"
 dependencies = [
- "camino",
- "nota-derive",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "nota-config"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/nota-config.git?branch=main#bd9173a7f4e92e4b201f663f70ae853e8c226c22"
-dependencies = [
- "nota-codec",
+ "nota-next-derive",
  "rkyv",
- "thiserror 2.0.18",
 ]
 
 [[package]]
-name = "nota-derive"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/nota-derive.git?branch=main#11347da1ff4425ff4e743c15a3e3ec322b54ea9a"
+name = "nota-next-derive"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/nota-next.git?branch=main#f0e435a629f8312b173b0f8564c17ee0a4001561"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -451,19 +434,6 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "owner-signal-persona"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/owner-signal-persona.git?branch=main#55336b2597e6d3204ecca952361ae601d583f74c"
-dependencies = [
- "nota-codec",
- "rkyv",
- "signal-engine-management",
- "signal-frame",
- "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git?branch=main)",
- "signal-sema",
-]
 
 [[package]]
 name = "parking_lot"
@@ -767,20 +737,20 @@ checksum = "dc6fe69c597f9c37bfeeeeeb33da3530379845f10be461a66d16d03eca2ded77"
 [[package]]
 name = "signal-engine-management"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-engine-management.git?branch=main#6eeff7968a95c8806a919af13d0b879b729d540d"
+source = "git+https://github.com/LiGoldragon/signal-engine-management.git?branch=main#305b7031668fed76c43af0d28cf70b94c933089d"
 dependencies = [
- "nota-codec",
+ "nota-next",
  "rkyv",
  "signal-frame",
- "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git?branch=main)",
+ "signal-persona-origin",
 ]
 
 [[package]]
 name = "signal-frame"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#ed066bcce411faf4cb4c7e8aad45cf72f8c9aa9e"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#904bb2fdb0210bbeec9f9f4edc9f8b88341522a3"
 dependencies = [
- "nota-codec",
+ "nota-next",
  "paste",
  "rkyv",
  "signal-frame-macros",
@@ -790,9 +760,8 @@ dependencies = [
 [[package]]
 name = "signal-frame-macros"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#ed066bcce411faf4cb4c7e8aad45cf72f8c9aa9e"
+source = "git+https://github.com/LiGoldragon/signal-frame.git?branch=main#904bb2fdb0210bbeec9f9f4edc9f8b88341522a3"
 dependencies = [
- "nota-codec",
  "proc-macro2",
  "quote",
  "syn",
@@ -830,58 +799,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "signal-persona"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona.git#afb2877f834a766a538e8ac0feaa07a020aef99c"
-dependencies = [
- "nota-codec",
- "owner-signal-persona",
- "rkyv",
- "signal-engine-management",
- "signal-frame",
- "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
- "signal-sema",
-]
-
-[[package]]
 name = "signal-persona-origin"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-origin.git?branch=main#837a6c6d2bac56974dbd13c47496a2d0d93b701d"
+source = "git+https://github.com/LiGoldragon/signal-persona-origin.git?branch=main#da2bee2e1a178f24a62d1eb5d3985e3937a79b5b"
 dependencies = [
- "nota-codec",
+ "nota-next",
  "rkyv",
-]
-
-[[package]]
-name = "signal-persona-origin"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-persona-origin.git#837a6c6d2bac56974dbd13c47496a2d0d93b701d"
-dependencies = [
- "nota-codec",
- "rkyv",
-]
-
-[[package]]
-name = "signal-sema"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-sema.git?branch=main#c132e9a06431617055bad2a9bae7bbecdeacd4b0"
-dependencies = [
- "nota-codec",
- "rkyv",
- "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "signal-terminal"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=main#aada9a8d16a9f6f773207518428b0727144fb103"
+source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=main#42766e8bc71d3f6f4a61794c73e7304e2dbf7b88"
 dependencies = [
- "nota-codec",
- "nota-config",
+ "nota-next",
  "rkyv",
+ "signal-engine-management",
  "signal-frame",
- "signal-persona",
- "signal-persona-origin 0.1.0 (git+https://github.com/LiGoldragon/signal-persona-origin.git)",
+ "signal-persona-origin",
  "thiserror 2.0.18",
 ]
 
