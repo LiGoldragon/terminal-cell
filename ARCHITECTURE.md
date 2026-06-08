@@ -238,16 +238,28 @@ end of the stream.
   and viewers. Exposes `new(control_socket, data_socket)` for full clients and
   `for_control_only(control_socket)` for clients that never attach (capture,
   send, wait, exit, resize, resolve).
-- `terminal-cell-daemon` — daemon that owns the `TerminalCell` actor and
-  binds both `control.sock` and `data.sock` listeners.
-- `TerminalControlPlaneLoop` / `TerminalControlConnection` — accept loop and
-  connection handler for the control listener. Rejects `Attach` requests
-  with `ATTACH_REJECTED_REPLY`.
-- `TerminalDataPlaneLoop` / `TerminalDataConnection` — accept loop and
-  connection handler for the data listener. Rejects every non-`Attach`
-  request with `ATTACH_REJECTED_REPLY`.
+- `terminal-cell-daemon` — the process binary: a one-line
+  `<TerminalCellProcessDaemon as DaemonEntry>::run_to_exit_code()`. The uniform
+  daemon spine (single rkyv-config argument, async multi-listener bind, accept,
+  request gating, peer credentials, lifecycle, exit) is emitted by
+  schema-rust-next into `src/schema/daemon.rs` from the
+  `WorkingListenerTier::component_decoded()` + meta-tier daemon shape in
+  `build.rs`. The daemon takes exactly one argument — a binary rkyv
+  `Configuration` file (no flags; the daemon-binary-only override).
+- `TerminalCellProcessDaemon` / `TerminalCellEngine` — the `ComponentDaemon`
+  marker + engine. The engine owns the `TerminalCell` actor + ports + the
+  transitional Signal control state behind a startup-set `OnceLock`; the
+  component-decoded working tier shares `&engine`. `start` spawns the session,
+  records `SocketAcceptLoop` started, and announces readiness.
+- `TerminalControlConnection` — the **working** (control) listener's
+  connection handler, run on `spawn_blocking` over the accepted stream. Rejects
+  `Attach` requests with `ATTACH_REJECTED_REPLY`.
+- `TerminalDataConnection` — the **meta** (data) listener's connection handler,
+  run on `spawn_blocking`. Rejects every non-`Attach` request with
+  `ATTACH_REJECTED_REPLY`.
 - `terminal-cell-send` / `-capture` / `-wait` / `-exit` / `-resize` — thin
-  command-line clients that take `--control-socket`.
+  command-line *clients* that take `--control-socket` and connect to a running
+  daemon's control plane (client flags, not daemon flags).
 - `terminal-cell-session-select` — runtime-directory selector that rejects a
   directory missing either `control.sock` or `data.sock` or any owning
   daemon process.

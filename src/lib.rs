@@ -2,10 +2,20 @@
 //! Low-level durable terminal cell.
 
 mod client;
+mod configuration;
+mod daemon;
 mod error;
 mod session;
 mod snapshot;
 mod socket;
+
+pub mod schema;
+
+pub use configuration::{Configuration, ConfigurationError};
+pub use daemon::{
+    TerminalCellDaemonError, TerminalCellEngine, TerminalCellProcessDaemon, TerminalSession,
+};
+pub use schema::daemon::DaemonEntry;
 
 pub use client::TerminalCellSocketClient;
 pub use error::TerminalCellError;

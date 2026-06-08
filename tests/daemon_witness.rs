@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use signal_terminal as terminal_signal;
 use terminal_cell::{
-    SocketReplyReader, SocketRequestWriter, TerminalCellSocketClient, TerminalSize,
+    Configuration, SocketReplyReader, SocketRequestWriter, TerminalCellSocketClient, TerminalSize,
 };
 
 struct DaemonFixture {
@@ -38,18 +38,27 @@ impl DaemonFixture {
         fs::create_dir_all(&root).expect("daemon test root created");
         let control_socket = root.join("control.sock");
         let data_socket = root.join("data.sock");
+        let configuration_path = root.join("daemon-configuration.rkyv");
+
+        let configuration = Configuration::new(
+            control_socket.to_string_lossy().into_owned(),
+            data_socket.to_string_lossy().into_owned(),
+            program.to_owned(),
+            arguments
+                .iter()
+                .map(|argument| argument.to_string())
+                .collect::<Vec<_>>(),
+        );
+        fs::write(
+            &configuration_path,
+            configuration
+                .to_signal_bytes()
+                .expect("daemon configuration encodes to rkyv"),
+        )
+        .expect("daemon configuration file written");
 
         let mut command = Command::new(Self::binary("terminal-cell-daemon"));
-        command
-            .arg("--control-socket")
-            .arg(&control_socket)
-            .arg("--data-socket")
-            .arg(&data_socket)
-            .arg("--")
-            .arg(program);
-        for argument in arguments {
-            command.arg(argument);
-        }
+        command.arg(&configuration_path);
         let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

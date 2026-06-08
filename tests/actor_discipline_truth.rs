@@ -12,18 +12,21 @@
 //!   source files (per `~/primary/skills/actor-systems.md`
 //!   §"No shared locks").
 //!
-//! The scan covers `src/**` except `src/bin/`. The daemon binary
-//! at `src/bin/terminal-cell-daemon.rs` still carries
+//! The scan covers `src/**` except `src/bin/` and `src/daemon.rs`.
+//! The daemon spine at `src/daemon.rs` (the `ComponentDaemon` hooks
+//! over the schema-emitted shell) still carries
 //! `Arc<Mutex<TerminalSignalControlState>>` for prompt-pattern
-//! registry sharing across socket-accept-loop tasks; this is
-//! known drift from the destination shape (the terminal
-//! ARCH §1.5 names `TerminalSignalControl` as a Kameo actor
-//! owned in `terminal`, not a shared lock in this
-//! daemon). Fixing the drift requires moving signal-control
-//! ownership behind a Kameo actor in this repo's daemon, or
-//! retiring the daemon's signal-control surface in favor of
-//! the terminal supervisor — an operator/designer
-//! decision, not a witness scope.
+//! registry sharing across the component-decoded connection handlers;
+//! this is the same known drift the retired
+//! `src/bin/terminal-cell-daemon.rs` carried, now relocated into the
+//! library where the emitted shell requires the `ComponentDaemon`
+//! impl to live. It is drift from the destination shape (the terminal
+//! ARCH §1.5 names `TerminalSignalControl` as a Kameo actor owned in
+//! `terminal`, not a shared lock in this daemon). Fixing it requires
+//! moving signal-control ownership behind a Kameo actor in this repo's
+//! daemon, or retiring the daemon's signal-control surface in favor of
+//! the terminal supervisor — an operator/designer decision, not a
+//! witness scope.
 //!
 //! A future refactor that collapses `TerminalCell` to a marker
 //! ZST, or wires shared locks between actors in library code,
@@ -73,19 +76,22 @@ fn actor_source_does_not_share_locks_between_actors() {
 fn production_source_files() -> Vec<PathBuf> {
     let crate_root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let src = crate_root.join("src");
-    let bin = src.join("bin");
+    // `src/bin/` is the CLI/daemon entry surface; `src/daemon.rs` is the
+    // component-decoded daemon spine that still carries the transitional
+    // `Arc<Mutex<TerminalSignalControlState>>` (see this file's module note).
+    let skip = [src.join("bin"), src.join("daemon.rs")];
     let mut output = Vec::new();
-    collect_rust_files(&src, &bin, &mut output);
+    collect_rust_files(&src, &skip, &mut output);
     output
 }
 
-fn collect_rust_files(directory: &Path, skip: &Path, output: &mut Vec<PathBuf>) {
+fn collect_rust_files(directory: &Path, skip: &[PathBuf], output: &mut Vec<PathBuf>) {
     let Ok(entries) = fs::read_dir(directory) else {
         return;
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if path == *skip {
+        if skip.contains(&path) {
             continue;
         }
         if path.is_dir() {

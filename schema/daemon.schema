@@ -1,0 +1,13 @@
+{}
+[ServeControl ServeData]
+[ControlServed DataServed]
+{
+  ServeControl ControlPlane
+  ServeData DataPlane
+
+  ControlServed ControlPlane
+  DataServed DataPlane
+
+  ControlPlane { socket String }
+  DataPlane { socket String }
+}
