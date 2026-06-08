@@ -11,6 +11,13 @@ use terminal_cell::{
     Configuration, SocketReplyReader, SocketRequestWriter, TerminalCellSocketClient, TerminalSize,
 };
 
+/// Widen a `u8` byte literal into the schema-emitted `Integer` (`u64`)
+/// byte vector the signal-terminal contract carries on its byte-bearing
+/// fields (`TerminalInputBytes`, `PromptPatternBytes`).
+fn signal_bytes(bytes: &[u8]) -> Vec<u64> {
+    bytes.iter().map(|byte| u64::from(*byte)).collect()
+}
+
 struct DaemonFixture {
     child: Child,
     root: PathBuf,
@@ -444,35 +451,31 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
     let registered = client
         .send_signal_request(
             terminal_signal::RegisterPromptPattern {
-                terminal: terminal_signal::TerminalName::new("operator"),
-                pattern: terminal_signal::PromptPattern::RegexSuffix {
-                    pattern: terminal_signal::PromptPatternBytes::new(
-                        br"agent-ready\r+\n$".to_vec(),
-                    ),
-                },
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
+                pattern: terminal_signal::PromptPattern::RegexSuffix(
+                    terminal_signal::PromptPatternBytes::new(signal_bytes(br"agent-ready\r+\n$")),
+                ),
             }
             .into(),
         )
         .expect("prompt pattern registration succeeds");
     let pattern_id = match registered {
-        terminal_signal::TerminalReply::PromptPatternRegistered(registered) => {
-            registered.pattern_id
-        }
+        terminal_signal::Output::PromptPatternRegistered(registered) => registered.pattern_id,
         other => panic!("expected prompt-pattern registration, got {other:?}"),
     };
 
     let acquired = client
         .send_signal_request(
             terminal_signal::AcquireInputGate {
-                terminal: terminal_signal::TerminalName::new("operator"),
-                reason: terminal_signal::InputGateReason::new("witness injection"),
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
+                reason: terminal_signal::InputGateReason::new("witness injection".to_string()),
                 prompt_pattern_identifier: Some(pattern_id),
             }
             .into(),
         )
         .expect("input gate acquisition succeeds");
     let lease = match acquired {
-        terminal_signal::TerminalReply::GateAcquired(acquired) => {
+        terminal_signal::Output::GateAcquired(acquired) => {
             assert_eq!(acquired.prompt_state, terminal_signal::PromptState::Clean);
             acquired.lease
         }
@@ -487,15 +490,15 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
     let ack = client
         .send_signal_request(
             terminal_signal::WriteInjection {
-                terminal: terminal_signal::TerminalName::new("operator"),
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
                 lease: lease.clone(),
-                bytes: terminal_signal::TerminalInputBytes::new(b"persona-signal\r".to_vec()),
+                bytes: terminal_signal::TerminalInputBytes::new(signal_bytes(b"persona-signal\r")),
             }
             .into(),
         )
         .expect("Signal write injection succeeds");
     assert!(
-        matches!(ack, terminal_signal::TerminalReply::InjectionAck(_)),
+        matches!(ack, terminal_signal::Output::InjectionAck(_)),
         "Signal write injection is acknowledged: {ack:?}"
     );
     daemon.wait_for_text("agent-response: persona-signal");
@@ -503,14 +506,14 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
     let released = client
         .send_signal_request(
             terminal_signal::ReleaseInputGate {
-                terminal: terminal_signal::TerminalName::new("operator"),
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
                 lease,
             }
             .into(),
         )
         .expect("Signal input gate release succeeds");
     match released {
-        terminal_signal::TerminalReply::GateReleased(released) => {
+        terminal_signal::Output::GateReleased(released) => {
             assert_eq!(
                 released.cached_human_bytes.into_u64(),
                 "human-held-behind-signal-gate\r".len() as u64
@@ -533,38 +536,34 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     let registered = client
         .send_signal_request(
             terminal_signal::RegisterPromptPattern {
-                terminal: terminal_signal::TerminalName::new("operator"),
-                pattern: terminal_signal::PromptPattern::RegexSuffix {
-                    pattern: terminal_signal::PromptPatternBytes::new(br"ready> ".to_vec()),
-                },
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
+                pattern: terminal_signal::PromptPattern::RegexSuffix(
+                    terminal_signal::PromptPatternBytes::new(signal_bytes(br"ready> ")),
+                ),
             }
             .into(),
         )
         .expect("prompt pattern registration succeeds");
     let pattern_id = match registered {
-        terminal_signal::TerminalReply::PromptPatternRegistered(registered) => {
-            registered.pattern_id
-        }
+        terminal_signal::Output::PromptPatternRegistered(registered) => registered.pattern_id,
         other => panic!("expected prompt-pattern registration, got {other:?}"),
     };
 
     let acquired = client
         .send_signal_request(
             terminal_signal::AcquireInputGate {
-                terminal: terminal_signal::TerminalName::new("operator"),
-                reason: terminal_signal::InputGateReason::new("dirty prompt witness"),
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
+                reason: terminal_signal::InputGateReason::new("dirty prompt witness".to_string()),
                 prompt_pattern_identifier: Some(pattern_id),
             }
             .into(),
         )
         .expect("dirty prompt still returns a gate acquisition with state");
     let lease = match acquired {
-        terminal_signal::TerminalReply::GateAcquired(acquired) => {
+        terminal_signal::Output::GateAcquired(acquired) => {
             assert_eq!(
                 acquired.prompt_state,
-                terminal_signal::PromptState::Dirty {
-                    trailing_count: terminal_signal::TerminalByteCount::new(5),
-                },
+                terminal_signal::PromptState::Dirty(terminal_signal::TerminalByteCount::new(5)),
                 "regex suffix prompt reports trailing dirty bytes"
             );
             acquired.lease
@@ -575,9 +574,9 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     let rejected = client
         .send_signal_request(
             terminal_signal::WriteInjection {
-                terminal: terminal_signal::TerminalName::new("operator"),
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
                 lease: lease.clone(),
-                bytes: terminal_signal::TerminalInputBytes::new(b"must-not-inject\r".to_vec()),
+                bytes: terminal_signal::TerminalInputBytes::new(signal_bytes(b"must-not-inject\r")),
             }
             .into(),
         )
@@ -585,7 +584,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     assert!(
         matches!(
             rejected,
-            terminal_signal::TerminalReply::InjectionRejected(terminal_signal::InjectionRejected {
+            terminal_signal::Output::InjectionRejected(terminal_signal::InjectionRejected {
                 reason: terminal_signal::InjectionRejectionReason::DirtyPrompt,
                 ..
             })
@@ -596,7 +595,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     let _ = client
         .send_signal_request(
             terminal_signal::ReleaseInputGate {
-                terminal: terminal_signal::TerminalName::new("operator"),
+                terminal: terminal_signal::TerminalName::new("operator".to_string()),
                 lease,
             }
             .into(),
@@ -616,9 +615,9 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
         .expect("subscription read timeout set");
     SocketRequestWriter::new(&mut subscription)
         .write_signal_request(
-            terminal_signal::SubscribeTerminalWorkerLifecycle {
-                terminal: terminal_signal::TerminalName::new("operator"),
-            }
+            terminal_signal::SubscribeTerminalWorkerLifecycle(terminal_signal::TerminalName::new(
+                "operator".to_string(),
+            ))
             .into(),
         )
         .expect("worker lifecycle subscription request writes");
@@ -627,7 +626,7 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
         .read_signal_event()
         .expect("initial worker lifecycle snapshot arrives");
     match snapshot {
-        terminal_signal::TerminalReply::TerminalWorkerLifecycleSnapshot(snapshot) => {
+        terminal_signal::Output::TerminalWorkerLifecycleSnapshot(snapshot) => {
             assert!(
                 snapshot.observations.iter().any(|observation| matches!(
                     observation,

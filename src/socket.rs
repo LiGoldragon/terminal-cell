@@ -18,9 +18,8 @@ fn synthetic_exchange() -> ExchangeIdentifier {
     )
 }
 use signal_terminal::{
-    TerminalEvent as SignalTerminalStreamEvent, TerminalFrame as SignalTerminalFrame,
-    TerminalFrameBody as SignalFrameBody, TerminalReply as SignalTerminalEvent,
-    TerminalRequest as SignalTerminalRequest,
+    Frame as SignalTerminalFrame, FrameBody as SignalFrameBody, Input as SignalTerminalRequest,
+    Output as SignalTerminalEvent, TerminalEvent as SignalTerminalStreamEvent,
 };
 
 use crate::{
