@@ -615,9 +615,9 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
         .expect("subscription read timeout set");
     SocketRequestWriter::new(&mut subscription)
         .write_signal_request(
-            terminal_signal::SubscribeTerminalWorkerLifecycle(terminal_signal::TerminalName::new(
-                "operator".to_string(),
-            ))
+            terminal_signal::SubscribeTerminalWorkerLifecycle::new(
+                terminal_signal::TerminalName::new("operator".to_string()),
+            )
             .into(),
         )
         .expect("worker lifecycle subscription request writes");

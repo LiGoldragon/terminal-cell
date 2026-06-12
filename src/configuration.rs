@@ -9,7 +9,7 @@
 use std::path::Path;
 
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
-use triad_runtime::{DaemonConfiguration as DaemonConfigurationTrait, SocketMode};
+use triad_runtime::{BindingSurface, SocketMode};
 
 const OWNER_ONLY_SOCKET_MODE: u32 = 0o600;
 
@@ -77,7 +77,7 @@ impl Configuration {
     }
 }
 
-impl DaemonConfigurationTrait for Configuration {
+impl BindingSurface for Configuration {
     fn socket_path(&self) -> &Path {
         Path::new(&self.control_socket_path)
     }
@@ -88,6 +88,10 @@ impl DaemonConfigurationTrait for Configuration {
 
     fn meta_socket_path(&self) -> Option<&Path> {
         Some(Path::new(&self.data_socket_path))
+    }
+
+    fn meta_socket_mode(&self) -> Option<SocketMode> {
+        Some(SocketMode::new(OWNER_ONLY_SOCKET_MODE))
     }
 
     /// terminal-cell owns no durable store — its state is the live PTY and

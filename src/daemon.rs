@@ -331,18 +331,20 @@ impl TerminalSignalControlState {
         lease: terminal_signal::InputGateLease,
         prompt_state: terminal_signal::PromptState,
     ) {
-        self.signal_leases.insert(lease.0.into_u64(), prompt_state);
+        self.signal_leases
+            .insert(lease.into_payload().into_u64(), prompt_state);
     }
 
     fn signal_lease_prompt_state(
         &self,
         lease: &terminal_signal::InputGateLease,
     ) -> Option<&terminal_signal::PromptState> {
-        self.signal_leases.get(&lease.0.clone().into_u64())
+        self.signal_leases.get(&lease.payload().clone().into_u64())
     }
 
     fn release_signal_lease(&mut self, lease: &terminal_signal::InputGateLease) {
-        self.signal_leases.remove(&lease.0.clone().into_u64());
+        self.signal_leases
+            .remove(&lease.payload().clone().into_u64());
     }
 }
 
@@ -503,7 +505,7 @@ impl TerminalControlConnection {
                 self.stream_signal_worker_lifecycle(subscription)
             }
             terminal_signal::Input::TerminalWorkerLifecycleRetraction(token) => {
-                let ack = terminal_signal::SubscriptionRetracted(token);
+                let ack = terminal_signal::SubscriptionRetracted::new(token);
                 SocketReplyWriter::new(&mut self.stream).write_signal_event(ack.into())
             }
             payload => {
@@ -520,7 +522,7 @@ impl TerminalControlConnection {
         match request {
             terminal_signal::Input::TerminalConnection(connection) => {
                 Ok(terminal_signal::TerminalReady {
-                    terminal: connection.0,
+                    terminal: connection.into_payload(),
                     generation: terminal_signal::TerminalGeneration::new(1),
                 }
                 .into())
@@ -566,7 +568,7 @@ impl TerminalControlConnection {
             terminal_signal::Input::TerminalCapture(capture) => {
                 let snapshot = self.snapshot()?;
                 Ok(terminal_signal::TerminalCaptured {
-                    terminal: capture.0,
+                    terminal: capture.into_payload(),
                     generation: terminal_signal::TerminalGeneration::new(1),
                     bytes: terminal_signal::TerminalTranscriptBytes::new(
                         Self::bytes_to_signal_bytes(snapshot.bytes()),
@@ -596,7 +598,7 @@ impl TerminalControlConnection {
             terminal_signal::Input::ListPromptPatterns(list) => {
                 let entries = self.signal_state()?.prompt_pattern_entries();
                 Ok(terminal_signal::PromptPatternList {
-                    terminal: list.0,
+                    terminal: list.into_payload(),
                     entries,
                 }
                 .into())
@@ -612,24 +614,24 @@ impl TerminalControlConnection {
             }
             terminal_signal::Input::SubscribeTerminalWorkerLifecycle(subscription) => {
                 Ok(terminal_signal::TerminalRejected {
-                    terminal: subscription.0,
+                    terminal: subscription.into_payload(),
                     reason: terminal_signal::TerminalRejectionReason::TransportFailed,
                 }
                 .into())
             }
             terminal_signal::Input::TerminalWorkerLifecycleRetraction(token) => {
                 Ok(terminal_signal::TerminalRejected {
-                    terminal: token.0,
+                    terminal: token.into_payload(),
                     reason: terminal_signal::TerminalRejectionReason::TransportFailed,
                 }
                 .into())
             }
             terminal_signal::Input::ListSessions(_) => {
-                Ok(terminal_signal::SessionList(Vec::new()).into())
+                Ok(terminal_signal::SessionList::new(Vec::new()).into())
             }
             terminal_signal::Input::ResolveSession(resolve) => {
                 Ok(terminal_signal::TerminalRejected {
-                    terminal: resolve.0,
+                    terminal: resolve.into_payload(),
                     reason: terminal_signal::TerminalRejectionReason::TransportFailed,
                 }
                 .into())
@@ -751,6 +753,7 @@ impl TerminalControlConnection {
         &mut self,
         subscription: terminal_signal::SubscribeTerminalWorkerLifecycle,
     ) -> io::Result<()> {
+        let terminal_name = subscription.into_payload();
         let terminal = self.terminal().clone();
         let mut lifecycle = self
             .runtime()
@@ -762,7 +765,7 @@ impl TerminalControlConnection {
             .map_err(Self::actor_error)?;
         SocketReplyWriter::new(&mut self.stream).write_signal_event(
             terminal_signal::TerminalWorkerLifecycleSnapshot {
-                terminal: subscription.0.clone(),
+                terminal: terminal_name.clone(),
                 observations: lifecycle
                     .replay()
                     .iter()
@@ -776,7 +779,7 @@ impl TerminalControlConnection {
         while let Some(event) = lifecycle.blocking_next_live_event() {
             SocketReplyWriter::new(&mut self.stream).write_signal_subscription_event(
                 terminal_signal::TerminalWorkerLifecycleEvent {
-                    terminal: subscription.0.clone(),
+                    terminal: terminal_name.clone(),
                     observation: Self::signal_worker_lifecycle(event),
                 }
                 .into(),
@@ -857,13 +860,15 @@ impl TerminalControlConnection {
     }
 
     fn signal_lease(lease: TerminalInputGateLease) -> terminal_signal::InputGateLease {
-        terminal_signal::InputGateLease(terminal_signal::InputGateLeaseIdentifier::new(
+        terminal_signal::InputGateLease::new(terminal_signal::InputGateLeaseIdentifier::new(
             lease.sequence().into_u64(),
         ))
     }
 
     fn terminal_lease(lease: &terminal_signal::InputGateLease) -> TerminalInputGateLease {
-        TerminalInputGateLease::new(TerminalInputGateSequence::new(lease.0.clone().into_u64()))
+        TerminalInputGateLease::new(TerminalInputGateSequence::new(
+            lease.payload().clone().into_u64(),
+        ))
     }
 
     /// Lower terminal-cell's `u8` byte buffer into the schema-emitted
