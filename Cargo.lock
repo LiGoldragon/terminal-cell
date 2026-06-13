@@ -899,7 +899,7 @@ dependencies = [
 [[package]]
 name = "signal-terminal"
 version = "0.2.1"
-source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=main#8dc8cd447d34c81c75a2c7c10c3bb041abc658da"
+source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=main#94f64cd508c1be1de51d26b41b82f8143ff122bf"
 dependencies = [
  "nota-next",
  "rkyv",
