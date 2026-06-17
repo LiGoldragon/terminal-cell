@@ -30,7 +30,11 @@
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
         schemaFilter =
           path: type:
-          (type == "regular" || type == "directory") && (builtins.match ".*/schema(/.*)?" path != null);
+          let
+            pathString = toString path;
+          in
+          (type == "regular" || type == "directory")
+          && (builtins.baseNameOf pathString == "schema" || pkgs.lib.hasInfix "/schema/" pathString);
         sourceFilter = path: type: (craneLib.filterCargoSources path type) || (schemaFilter path type);
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
