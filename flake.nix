@@ -79,7 +79,7 @@
             commonArgs
             // {
               inherit cargoArtifacts;
-              cargoTestExtraArgs = "--bin terminal-cell-daemon tests::terminal_socket_file_bind_listener_applies_mode -- --exact";
+              cargoTestExtraArgs = "--test daemon_contract_truth";
             }
           );
           fmt = craneLib.cargoFmt { inherit src; };
@@ -137,7 +137,7 @@
             name = "terminal-cell-control-socket-mode-witness";
             runtimeInputs = [ toolchain ];
             text = ''
-              cargo test --bin terminal-cell-daemon tests::terminal_socket_file_bind_listener_applies_mode -- --exact --nocapture
+              cargo test --test daemon_contract_truth -- --nocapture
             '';
           };
         };
