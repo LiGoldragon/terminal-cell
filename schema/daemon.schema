@@ -8,6 +8,8 @@
   ControlServed ControlPlane
   DataServed DataPlane
 
-  ControlPlane { socket String }
-  DataPlane { socket String }
+  ControlSocketPath String
+  DataSocketPath String
+  ControlPlane { ControlSocketPath * }
+  DataPlane { DataSocketPath * }
 }
