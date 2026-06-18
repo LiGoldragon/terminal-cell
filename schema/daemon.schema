@@ -10,6 +10,6 @@
 
   ControlSocketPath String
   DataSocketPath String
-  ControlPlane { ControlSocketPath * }
-  DataPlane { DataSocketPath * }
+  ControlPlane { ControlSocketPath }
+  DataPlane { DataSocketPath }
 }
