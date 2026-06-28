@@ -26,6 +26,10 @@ the byte-tag CLI protocol, and `data.sock` for raw attached-viewer bytes.
   It reads stdin or `--file <path>`, emits one NOTA reply, and translates
   launch requests into the daemon's binary rkyv configuration. Do not call
   this input "strict NOTA"; it is simply NOTA.
+- `CloseCell` owns lifecycle cleanup for both the daemon and the PTY child.
+  It should terminate the daemon process group and, when available, the PTY
+  child process group; the NOTA reply must report daemon, child, and aggregate
+  termination truthfully.
 - `ObserveCell` reports only terminal/process/PTY state such as sockets,
   daemon pid/liveness, cwd, worker observation, transcript byte offset, and
   child-exit worker state. Provider logs, Claude JSONL, quota, and harness

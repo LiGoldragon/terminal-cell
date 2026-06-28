@@ -24,6 +24,7 @@ pub struct Configuration {
     arguments: Vec<String>,
     working_directory: Option<String>,
     environment: Vec<ConfigurationEnvironmentVariable>,
+    child_process_identifier_path: Option<String>,
 }
 
 impl Configuration {
@@ -58,7 +59,13 @@ impl Configuration {
             arguments: arguments.into(),
             working_directory,
             environment,
+            child_process_identifier_path: None,
         }
+    }
+
+    pub fn with_child_process_identifier_path(mut self, path: Option<String>) -> Self {
+        self.child_process_identifier_path = path;
+        self
     }
 
     pub fn control_socket_path(&self) -> &str {
@@ -83,6 +90,10 @@ impl Configuration {
 
     pub fn environment(&self) -> &[ConfigurationEnvironmentVariable] {
         self.environment.as_slice()
+    }
+
+    pub fn child_process_identifier_path(&self) -> Option<&str> {
+        self.child_process_identifier_path.as_deref()
     }
 
     /// Encode the configuration to the binary rkyv form the daemon accepts as

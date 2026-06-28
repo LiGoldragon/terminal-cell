@@ -129,15 +129,25 @@ pub struct CloseCell {
 impl CloseCell {
     fn close(self) -> CliResult<CellResponse> {
         let session = RuntimeSession::from_locator(self.cell)?;
-        let pid = session.daemon_pid()?;
-        let before = ProcessState::from_pid(pid);
-        let terminated = session.terminate(pid);
+        let daemon = ProcessHandle::new(session.daemon_pid()?);
+        let child = session.child_pid()?.map(ProcessHandle::new);
+        let before = daemon.state();
+        let child_outcome = child.as_ref().map(ProcessHandle::terminate);
+        let daemon_outcome = daemon.terminate();
+        let child_terminated = child_outcome
+            .as_ref()
+            .map(TerminationOutcome::terminated)
+            .unwrap_or(false);
+        let daemon_terminated = daemon_outcome.terminated();
         Ok(CellResponse::CellClosed(CellClosed {
             cell: session.name()?,
             session_path: session.path_text(),
-            daemon_pid: pid,
+            daemon_pid: daemon.pid(),
+            child_pid: child.map(ProcessHandle::pid),
             was_live: before.is_live(),
-            terminated,
+            terminated: daemon_terminated && child_terminated,
+            daemon_terminated,
+            child_terminated,
         }))
     }
 }
@@ -204,10 +214,15 @@ pub enum ProcessState {
 
 impl ProcessState {
     fn from_pid(pid: u64) -> Self {
-        if Path::new("/proc").join(pid.to_string()).exists() {
-            Self::Live
-        } else {
+        let path = Path::new("/proc").join(pid.to_string());
+        if !path.exists() {
+            return Self::Exited;
+        }
+        let status = fs::read_to_string(path.join("status")).unwrap_or_default();
+        if ProcessStatusText::new(&status).is_zombie() {
             Self::Exited
+        } else {
+            Self::Live
         }
     }
 
@@ -226,8 +241,11 @@ pub struct CellClosed {
     pub cell: String,
     pub session_path: String,
     pub daemon_pid: u64,
+    pub child_pid: Option<u64>,
     pub was_live: bool,
     pub terminated: bool,
+    pub daemon_terminated: bool,
+    pub child_terminated: bool,
 }
 
 pub struct TerminalCellCli {
@@ -409,7 +427,8 @@ impl RuntimeSession {
                 .into_iter()
                 .map(CellEnvironmentVariable::into_configuration)
                 .collect(),
-        );
+        )
+        .with_child_process_identifier_path(Some(self.child_process_identifier_path_text()));
         fs::write(self.configuration_path(), configuration.to_signal_bytes()?)?;
         Ok(())
     }
@@ -492,23 +511,6 @@ impl RuntimeSession {
         })
     }
 
-    fn terminate(&self, pid: u64) -> bool {
-        if !ProcessState::from_pid(pid).is_live() {
-            return false;
-        }
-        let group = format!("-{pid}");
-        let _ = Command::new("kill").arg("-TERM").arg(&group).status();
-        let deadline = std::time::Instant::now() + CLOSE_WAIT;
-        while std::time::Instant::now() < deadline {
-            if !ProcessState::from_pid(pid).is_live() {
-                return true;
-            }
-            thread::sleep(Duration::from_millis(20));
-        }
-        let _ = Command::new("kill").arg("-KILL").arg(&group).status();
-        !ProcessState::from_pid(pid).is_live()
-    }
-
     fn control_client(&self) -> TerminalCellSocketClient {
         TerminalCellSocketClient::for_control_only(self.control_socket())
     }
@@ -516,6 +518,15 @@ impl RuntimeSession {
     fn daemon_pid(&self) -> CliResult<u64> {
         let text = fs::read_to_string(self.path.join("daemon.pid"))?;
         Ok(text.trim().parse::<u64>()?)
+    }
+
+    fn child_pid(&self) -> CliResult<Option<u64>> {
+        let path = self.child_process_identifier_path();
+        match fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text.trim().parse::<u64>()?)),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
     }
 
     fn working_directory(&self) -> CliResult<String> {
@@ -556,6 +567,16 @@ impl RuntimeSession {
         self.path.join("daemon-configuration.rkyv")
     }
 
+    fn child_process_identifier_path(&self) -> PathBuf {
+        self.path.join("child.pid")
+    }
+
+    fn child_process_identifier_path_text(&self) -> String {
+        self.child_process_identifier_path()
+            .to_string_lossy()
+            .into_owned()
+    }
+
     fn control_socket(&self) -> PathBuf {
         self.path.join("control.sock")
     }
@@ -568,6 +589,123 @@ impl RuntimeSession {
         fs::symlink_metadata(self.path.join(name))
             .map(|metadata| metadata.file_type().is_socket())
             .unwrap_or(false)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ProcessHandle {
+    pid: u64,
+}
+
+impl ProcessHandle {
+    fn new(pid: u64) -> Self {
+        Self { pid }
+    }
+
+    const fn pid(self) -> u64 {
+        self.pid
+    }
+
+    fn state(self) -> ProcessState {
+        ProcessState::from_pid(self.pid)
+    }
+
+    fn terminate(&self) -> TerminationOutcome {
+        let was_live = self.state().is_live();
+        if !was_live {
+            return TerminationOutcome::new(*self, was_live);
+        }
+
+        self.signal(TerminationSignal::Terminate, SignalTarget::ProcessGroup);
+        self.signal(TerminationSignal::Terminate, SignalTarget::Process);
+        if self.wait_for_exit(CLOSE_WAIT) {
+            return TerminationOutcome::new(*self, was_live);
+        }
+
+        self.signal(TerminationSignal::Kill, SignalTarget::ProcessGroup);
+        self.signal(TerminationSignal::Kill, SignalTarget::Process);
+        let _ = self.wait_for_exit(CLOSE_WAIT);
+        TerminationOutcome::new(*self, was_live)
+    }
+
+    fn signal(&self, signal: TerminationSignal, target: SignalTarget) {
+        let _ = Command::new("kill")
+            .arg(signal.argument())
+            .arg(target.argument(self.pid))
+            .status();
+    }
+
+    fn wait_for_exit(&self, timeout: Duration) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
+        while std::time::Instant::now() < deadline {
+            if !self.state().is_live() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        !self.state().is_live()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TerminationOutcome {
+    process: ProcessHandle,
+    was_live: bool,
+}
+
+impl TerminationOutcome {
+    fn new(process: ProcessHandle, was_live: bool) -> Self {
+        Self { process, was_live }
+    }
+
+    fn terminated(&self) -> bool {
+        self.was_live && !self.process.state().is_live()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TerminationSignal {
+    Terminate,
+    Kill,
+}
+
+impl TerminationSignal {
+    const fn argument(self) -> &'static str {
+        match self {
+            Self::Terminate => "-TERM",
+            Self::Kill => "-KILL",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SignalTarget {
+    Process,
+    ProcessGroup,
+}
+
+impl SignalTarget {
+    fn argument(self, pid: u64) -> String {
+        match self {
+            Self::Process => pid.to_string(),
+            Self::ProcessGroup => format!("-{pid}"),
+        }
+    }
+}
+
+struct ProcessStatusText<'text> {
+    text: &'text str,
+}
+
+impl<'text> ProcessStatusText<'text> {
+    fn new(text: &'text str) -> Self {
+        Self { text }
+    }
+
+    fn is_zombie(&self) -> bool {
+        self.text
+            .lines()
+            .any(|line| line.starts_with("State:") && line.contains('Z'))
     }
 }
 

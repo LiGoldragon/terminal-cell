@@ -405,6 +405,9 @@ reader; the witness section names the test that proves each.
 - The root NOTA CLI variants are `LaunchCell`, `SendLine`, `AttachViewer`,
   `CloseCell`, and `ObserveCell`. `ObserveCell` stays provider-agnostic and
   reports only terminal/process/socket/transcript worker state.
+- `CloseCell` terminates both the daemon process group and the PTY child
+  process group when the child pid has been captured, and reports daemon,
+  child, and aggregate cleanup status.
 - `TerminalCellSocketClient::for_control_only(control_socket)` returns
   `io::ErrorKind::Unsupported` from `open_attach_stream`; a control-only
   client cannot silently borrow the control socket as a data path.

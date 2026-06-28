@@ -106,7 +106,9 @@ configuration and spawning `terminal-cell-daemon`; callers do not construct
 that binary configuration themselves. `ObserveCell` reports only
 terminal/process/PTY-facing state: socket paths, daemon pid/liveness, cwd,
 worker observation, transcript byte offset, and child-exit worker state when
-present.
+present. `CloseCell` terminates both the daemon process group and the PTY
+child process group when the child pid is available, and reports
+`daemon_terminated`, `child_terminated`, and aggregate `terminated` fields.
 
 This component does not have a Sema database. Session listing and naming are
 local runtime-directory metadata (`session.name`, `session.env`, pid files,

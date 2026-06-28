@@ -92,11 +92,21 @@ impl TerminalSize {
 pub struct TerminalLaunch {
     command: TerminalCommand,
     size: TerminalSize,
+    child_process_identifier_path: Option<String>,
 }
 
 impl TerminalLaunch {
     pub fn new(command: TerminalCommand, size: TerminalSize) -> Self {
-        Self { command, size }
+        Self {
+            command,
+            size,
+            child_process_identifier_path: None,
+        }
+    }
+
+    pub fn with_child_process_identifier_path(mut self, path: Option<String>) -> Self {
+        self.child_process_identifier_path = path;
+        self
     }
 }
 
@@ -1362,6 +1372,12 @@ impl Actor for TerminalCell {
             .slave
             .spawn_command(args.launch.command.into_builder())
             .map_err(TerminalCellError::pty)?;
+        if let Some(path) = args.launch.child_process_identifier_path {
+            let identifier = child.process_id().ok_or_else(|| {
+                TerminalCellError::pty("spawned terminal child has no process identifier")
+            })?;
+            std::fs::write(path, identifier.to_string()).map_err(TerminalCellError::pty)?;
+        }
         let child_killer = child.clone_killer();
         let mut reader = pair
             .master

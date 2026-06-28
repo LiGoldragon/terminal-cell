@@ -103,7 +103,42 @@ fn nota_cli_launches_sends_observes_and_closes_arbitrary_command() {
     );
 
     let closed = fixture.successful(&format!("(CloseCell ({}))", launched.session_path));
-    assert!(matches!(closed, CellResponse::CellClosed(_)));
+    match closed {
+        CellResponse::CellClosed(closed) => assert!(closed.terminated),
+        other => panic!("expected CellClosed, got {other:?}"),
+    }
+}
+
+#[test]
+fn close_cell_terminates_daemon_and_pty_child_process_group() {
+    let fixture = CliFixture::new("c");
+    let workspace = fixture.runtime.join("workspace");
+    fs::create_dir_all(workspace.as_path()).expect("workspace created");
+
+    let launch = format!(
+        "(LaunchCell ((Some c) (Some {}) {} [-c [|trap '' TERM HUP; while true; do sleep 1; done|]] []))",
+        path_atom(workspace.as_path()),
+        shell_command(),
+    );
+    let launched = match fixture.successful(&launch) {
+        CellResponse::CellLaunched(launched) => launched,
+        other => panic!("expected CellLaunched, got {other:?}"),
+    };
+    let child_pid = child_pid(&launched.session_path);
+    assert!(process_is_live(launched.daemon_pid));
+    assert!(process_is_live(child_pid));
+
+    let closed = match fixture.successful(&format!("(CloseCell ({}))", launched.session_path)) {
+        CellResponse::CellClosed(closed) => closed,
+        other => panic!("expected CellClosed, got {other:?}"),
+    };
+
+    assert_eq!(closed.child_pid, Some(child_pid));
+    assert!(closed.daemon_terminated, "daemon cleanup is reported");
+    assert!(closed.child_terminated, "PTY child cleanup is reported");
+    assert!(closed.terminated, "aggregate cleanup is reported");
+    assert!(!process_is_live(launched.daemon_pid), "daemon pid is gone");
+    assert!(!process_is_live(child_pid), "PTY child pid is gone");
 }
 
 fn observe_until_transcript(
@@ -125,4 +160,27 @@ fn observe_until_transcript(
 
 fn path_atom(path: &Path) -> String {
     path.to_string_lossy().into_owned()
+}
+
+fn shell_command() -> String {
+    env::var("TERMINAL_CELL_TEST_SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
+}
+
+fn child_pid(session_path: &str) -> u64 {
+    fs::read_to_string(Path::new(session_path).join("child.pid"))
+        .expect("child pid file exists")
+        .trim()
+        .parse::<u64>()
+        .expect("child pid parses")
+}
+
+fn process_is_live(pid: u64) -> bool {
+    let path = Path::new("/proc").join(pid.to_string());
+    if !path.exists() {
+        return false;
+    }
+    !fs::read_to_string(path.join("status"))
+        .unwrap_or_default()
+        .lines()
+        .any(|line| line.starts_with("State:") && line.contains('Z'))
 }

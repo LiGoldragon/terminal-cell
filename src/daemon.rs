@@ -129,11 +129,17 @@ impl TerminalCellEngine {
                 .map(|variable| (variable.name().to_owned(), variable.value().to_owned()))
                 .collect(),
         );
+        let launch = TerminalLaunch::new(
+            command,
+            TerminalSize::new(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLUMNS),
+        )
+        .with_child_process_identifier_path(
+            configuration
+                .child_process_identifier_path()
+                .map(std::string::ToString::to_string),
+        );
         Self {
-            launch: TerminalLaunch::new(
-                command,
-                TerminalSize::new(DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLUMNS),
-            ),
+            launch,
             control_socket_path: configuration.control_socket_path().to_owned(),
             data_socket_path: configuration.data_socket_path().to_owned(),
             session: OnceLock::new(),
