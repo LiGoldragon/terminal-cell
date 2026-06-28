@@ -22,6 +22,8 @@ pub struct Configuration {
     data_socket_path: String,
     program: String,
     arguments: Vec<String>,
+    working_directory: Option<String>,
+    environment: Vec<ConfigurationEnvironmentVariable>,
 }
 
 impl Configuration {
@@ -31,11 +33,31 @@ impl Configuration {
         program: impl Into<String>,
         arguments: impl Into<Vec<String>>,
     ) -> Self {
+        Self::with_working_directory_and_environment(
+            control_socket_path,
+            data_socket_path,
+            program,
+            arguments,
+            None,
+            Vec::new(),
+        )
+    }
+
+    pub fn with_working_directory_and_environment(
+        control_socket_path: impl Into<String>,
+        data_socket_path: impl Into<String>,
+        program: impl Into<String>,
+        arguments: impl Into<Vec<String>>,
+        working_directory: Option<String>,
+        environment: Vec<ConfigurationEnvironmentVariable>,
+    ) -> Self {
         Self {
             control_socket_path: control_socket_path.into(),
             data_socket_path: data_socket_path.into(),
             program: program.into(),
             arguments: arguments.into(),
+            working_directory,
+            environment,
         }
     }
 
@@ -53,6 +75,14 @@ impl Configuration {
 
     pub fn arguments(&self) -> &[String] {
         &self.arguments
+    }
+
+    pub fn working_directory(&self) -> Option<&str> {
+        self.working_directory.as_deref()
+    }
+
+    pub fn environment(&self) -> &[ConfigurationEnvironmentVariable] {
+        self.environment.as_slice()
     }
 
     /// Encode the configuration to the binary rkyv form the daemon accepts as
@@ -74,6 +104,29 @@ impl Configuration {
     pub fn from_signal_file(path: &Path) -> Result<Self, ConfigurationError> {
         let bytes = std::fs::read(path).map_err(ConfigurationError::Read)?;
         Self::from_signal_bytes(&bytes)
+    }
+}
+
+#[derive(Archive, RkyvSerialize, RkyvDeserialize, Debug, Clone, PartialEq, Eq)]
+pub struct ConfigurationEnvironmentVariable {
+    name: String,
+    value: String,
+}
+
+impl ConfigurationEnvironmentVariable {
+    pub fn new(name: impl Into<String>, value: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            value: value.into(),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.as_str()
+    }
+
+    pub fn value(&self) -> &str {
+        self.value.as_str()
     }
 }
 

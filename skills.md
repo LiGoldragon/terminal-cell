@@ -21,6 +21,15 @@ the byte-tag CLI protocol, and `data.sock` for raw attached-viewer bytes.
 - Local CLI binaries (`-send`, `-capture`, `-wait`, `-exit`, `-resize`,
   `-resolve`) take `--control-socket` only; `-view` takes both
   `--control-socket` and `--data-socket`.
+- `terminal-cell` is the NOTA edge for provider-agnostic cell lifecycle:
+  `LaunchCell`, `SendLine`, `AttachViewer`, `CloseCell`, and `ObserveCell`.
+  It reads stdin or `--file <path>`, emits one NOTA reply, and translates
+  launch requests into the daemon's binary rkyv configuration. Do not call
+  this input "strict NOTA"; it is simply NOTA.
+- `ObserveCell` reports only terminal/process/PTY state such as sockets,
+  daemon pid/liveness, cwd, worker observation, transcript byte offset, and
+  child-exit worker state. Provider logs, Claude JSONL, quota, and harness
+  semantics stay outside this repo.
 
 ## Viewer latency and transcript decoupling
 

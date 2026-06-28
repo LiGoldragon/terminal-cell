@@ -20,13 +20,26 @@ use crate::snapshot::ScreenProjection;
 pub struct TerminalCommand {
     program: String,
     arguments: Vec<String>,
+    working_directory: Option<String>,
+    environment: Vec<(String, String)>,
 }
 
 impl TerminalCommand {
     pub fn new(program: impl Into<String>, arguments: impl Into<Vec<String>>) -> Self {
+        Self::with_working_directory_and_environment(program, arguments, None, Vec::new())
+    }
+
+    pub fn with_working_directory_and_environment(
+        program: impl Into<String>,
+        arguments: impl Into<Vec<String>>,
+        working_directory: Option<String>,
+        environment: Vec<(String, String)>,
+    ) -> Self {
         Self {
             program: program.into(),
             arguments: arguments.into(),
+            working_directory,
+            environment,
         }
     }
 
@@ -34,6 +47,12 @@ impl TerminalCommand {
         let mut builder = CommandBuilder::new(self.program);
         for argument in self.arguments {
             builder.arg(argument);
+        }
+        if let Some(working_directory) = self.working_directory {
+            builder.cwd(working_directory);
+        }
+        for (name, value) in self.environment {
+            builder.env(name, value);
         }
         builder.env("TERM", "xterm-256color");
         builder

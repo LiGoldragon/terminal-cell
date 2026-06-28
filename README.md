@@ -90,6 +90,24 @@ second argument. Override Pi with
 `terminal-cell-resize` sends a daemon resize control request. It does not
 require an attached Ghostty view.
 
+Provider-agnostic lifecycle CLI:
+
+```sh
+printf '(LaunchCell ((Some demo) (Some /tmp) bash [-lc cat] []))' | terminal-cell
+printf '(SendLine (/run/user/1000/terminal-cell/session-demo-... hello))' | terminal-cell
+printf '(ObserveCell (/run/user/1000/terminal-cell/session-demo-...))' | terminal-cell
+printf '(AttachViewer (/run/user/1000/terminal-cell/session-demo-... Interactive))' | terminal-cell
+printf '(CloseCell (/run/user/1000/terminal-cell/session-demo-...))' | terminal-cell
+```
+
+`terminal-cell` reads one NOTA request from stdin, or from `--file <path>`.
+It launches arbitrary commands by writing the daemon's binary rkyv
+configuration and spawning `terminal-cell-daemon`; callers do not construct
+that binary configuration themselves. `ObserveCell` reports only
+terminal/process/PTY-facing state: socket paths, daemon pid/liveness, cwd,
+worker observation, transcript byte offset, and child-exit worker state when
+present.
+
 This component does not have a Sema database. Session listing and naming are
 local runtime-directory metadata (`session.name`, `session.env`, pid files,
 `control.sock`, `data.sock`). The production registry belongs in a

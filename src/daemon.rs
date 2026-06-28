@@ -117,9 +117,17 @@ pub struct TerminalCellEngine {
 
 impl TerminalCellEngine {
     fn from_configuration(configuration: &Configuration) -> Self {
-        let command = TerminalCommand::new(
+        let command = TerminalCommand::with_working_directory_and_environment(
             configuration.program().to_owned(),
             configuration.arguments().to_vec(),
+            configuration
+                .working_directory()
+                .map(std::string::ToString::to_string),
+            configuration
+                .environment()
+                .iter()
+                .map(|variable| (variable.name().to_owned(), variable.value().to_owned()))
+                .collect(),
         );
         Self {
             launch: TerminalLaunch::new(
