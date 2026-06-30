@@ -49,10 +49,10 @@ Three properties are load-bearing and tested with witnesses:
   listeners bound at daemon startup; the daemon rejects cross-plane traffic on
   each socket with a typed reply before any bytes cross.
 
-Production Persona consumes `terminal-cell` as a library inside the
-consolidated `terminal-daemon`. The standalone `terminal-cell-daemon`
-remains the local development and stateful-test harness for this primitive; it
-is not the Persona engine boundary.
+`terminal-cell` is currently the active terminal primitive for V1 harness
+work, including Claude/Codex tests. Use it directly while `terminal` is
+archived/inactive. The older plan to consume it only as a library inside a
+consolidated `terminal-daemon` is not current guidance.
 
 ## 1 · Ownership
 
@@ -75,24 +75,27 @@ time — prompt-pattern registration, input-gate leasing, write injection,
 transcript capture, resize, worker-lifecycle subscription, wait conditions —
 arrives here.
 
-Production Persona control flows through `terminal`, which owns the
+Current V1 harness control flows directly through `terminal-cell` while
+`terminal` is archived/inactive. A future reactivated owner may take back
 registry, prompt-pattern lifecycle, input-gate policy, injection decision, and
-component Sema state. The wire between `terminal` and `terminal-cell`
-is Signal on this control socket. Local command-line clients
+component Sema state. Local command-line clients
 (`terminal-cell-send`, `-capture`, `-wait`, `-exit`, `-resize`) speak the
 byte-tag protocol on the same socket because they exist for human and test
 ergonomics. Both encodings are control-plane only.
 
-The stack the cell sits inside:
+The current V1 stack around the cell:
 
 ```text
-terminal                registry, names, Sema state, lifecycle policy
-signal-terminal         typed terminal requests and events
 terminal-cell           one child process group, one PTY, raw attach primitive
-viewer adapters         disposable visible windows around the terminal owner
+signal-terminal         typed terminal requests and events
+viewer adapters         disposable visible windows around the terminal cell
 persona-system          OS facts such as focus and window state
 persona-harness         harness-specific prompts, usage probes, quota parsing
 ```
+
+The archived `terminal` repo records a possible future owner for registry,
+names, Sema state, and lifecycle policy; it is not in the current V1 harness
+path.
 
 ### 1.2 · Data plane
 
@@ -168,10 +171,10 @@ rule.
 
 `AcquireInputGate` returns prompt state when a prompt pattern id is supplied.
 `WriteInjection` rejects dirty-prompt leases by default. The prompt-pattern
-registry in this repo is a witness aid for safe injection while
-`terminal` evolves the production control surface; literal and regex
-patterns are suffix checks, and trailing bytes after the last match make the
-prompt dirty. It does not make `terminal-cell` a harness semantic parser.
+registry in this repo is the current V1 harness aid for safe injection while
+higher-level control ownership is inactive; literal and regex patterns are
+suffix checks, and trailing bytes after the last match make the prompt dirty.
+It does not make `terminal-cell` a harness semantic parser.
 
 ### 1.6 · Single active viewer
 
@@ -229,8 +232,8 @@ end of the stream.
 - `TerminalInputGateRelease` — writer-side release record naming the lease and
   how many held human bytes were flushed when the gate reopened.
 - Prompt-pattern control — daemon-side registry used to check whether the
-  transcript currently ends in a registered terminal-ready shape. Production
-  ownership of pattern lifecycle belongs in `terminal`.
+  transcript currently ends in a registered terminal-ready shape. It is active
+  here for V1 harness work while higher-level ownership is inactive.
 - Worker-lifecycle subscription — pushed initial worker snapshot plus live
   worker-lifecycle deltas over `signal-terminal`.
 - `TerminalExit` — recorded child status.

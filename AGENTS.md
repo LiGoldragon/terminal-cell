@@ -7,7 +7,9 @@ protocol before editing this repository.
 
 Terminal Cell is the low-level durable terminal cell primitive used under
 Persona terminal transport. It owns one PTY, append-only transcript truth,
-disposable viewers, and typed input/capture messages.
+disposable viewers, and typed input/capture messages. It is the active
+terminal primitive for V1 harness Claude/Codex tests while `terminal` is
+archived/inactive.
 
 ## Boundaries
 

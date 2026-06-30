@@ -7,16 +7,16 @@ embellished. Maintenance: `primary/skills/repo-intent.md`.*
 `terminal-cell` is the low-level daemon-owned PTY/transcript cell
 primitive: one child process group, one PTY, raw input ports,
 append-only transcript replay, worker-lifecycle observation, and one
-active viewer attachment. It is the byte-level primitive that
-`terminal` consumes as a library; the Persona-facing session owner,
-naming, and policy live in `terminal`.
+active viewer attachment. It is the active terminal primitive for V1 harness
+work, including Claude/Codex tests, and should be used directly while
+`terminal` is archived/inactive.
 
 ## Repo-scope only
 
-This file carries primitive-side intent for `terminal-cell`.
-Persona-facing session ownership, naming, registry, and policy stay in
-`terminal/INTENT.md`. Wire vocabulary stays in `signal-terminal`.
-Workspace-shape intent stays in `primary/INTENT.md`.
+This file carries primitive-side intent for `terminal-cell`. Higher-level
+Persona-facing session ownership, naming, registry, and policy are not active
+in `terminal` while that repo is archived. Wire vocabulary stays in
+`signal-terminal`. Workspace-shape intent stays in `primary/INTENT.md`.
 
 ## Goals
 
@@ -46,8 +46,8 @@ Workspace-shape intent stays in `primary/INTENT.md`.
   Human keyboard bytes and Persona programmatic injection write to the
   same PTY through one writer and one gate; the gate does not parse
   slash commands or infer harness prompt state. Prompt-pattern checks
-  here are a witness aid for safe injection while `terminal` evolves
-  the production control surface.
+  here are a witness aid for safe injection while higher-level control
+  ownership is inactive.
 - **One active viewer per cell.** A second attach while a viewer is
   active is explicitly rejected before any replay or live bytes cross.
 - **Inter-component traffic is Signal; NOTA renders only at edges.**
@@ -62,16 +62,18 @@ Workspace-shape intent stays in `primary/INTENT.md`.
 ## Anti-patterns
 
 - No Sema database here — a running session is discoverable through its
-  runtime directory, which is a local convenience registry, not durable
-  system truth. Durable named-session state belongs in `terminal`.
-- The standalone `terminal-cell-daemon` is the development/test harness
-  for this primitive, not the Persona engine boundary.
+  runtime directory, which is the current V1 harness registry surface. Durable
+  named-session state would belong in a future reactivated higher-level owner.
+- Do not wait on the archived `terminal` owner for V1 harness testing.
+  `terminal-cell` is the active direct terminal primitive until another
+  owner is explicitly reactivated.
 
 ## See also
 
 - `ARCHITECTURE.md` — plane isolation, the worker/actor split, input
   gate, subscription lifecycle, witnesses.
-- `../terminal/INTENT.md` — the Persona-facing terminal session owner.
+- `../terminal/INTENT.md` — the archived Persona-facing terminal session
+  owner design.
 - `../signal-terminal/INTENT.md` — typed terminal request/event vocabulary.
 - `primary/skills/component-triad.md` — the data-plane carve-out for
   high-bandwidth byte paths outside the triad.

@@ -4,19 +4,18 @@ Low-level durable terminal cell primitive: daemon-owned PTY lifecycle,
 transcript capture, raw programmatic input, and attach without terminal
 multiplexer UI.
 
-Status: this is a production-candidate low-level terminal cell for live human
-TUI use. The first
+Status: this is the active terminal primitive for V1 harness work, including
+Claude/Codex tests, while `terminal` is archived/inactive. It is also a
+production-candidate low-level terminal cell for live human TUI use. The first
 `terminal-cell-view` relay design was rejected after manual Pi testing showed
 slow, dropped, and stalled keyboard interaction. The current view sends one
 attach request, pumps raw bytes over one Unix stream, and forwards terminal
 resize events to the daemon; transcript and actor logic observe around that
 path instead of rendering the human session through transcript subscriptions.
-The daemon also still accepts `signal-terminal` control frames for
-prompt patterns, input gate leases, write injection, capture/resize, and worker
-lifecycle subscription. That direct Signal endpoint is transitional witness
-code retained while `terminal` takes over the production control plane.
-The production Persona endpoint is `terminal`; attached viewer bytes
-remain raw.
+The daemon also accepts `signal-terminal` control frames for prompt patterns,
+input gate leases, write injection, capture/resize, and worker lifecycle
+subscription. That direct Signal endpoint is the V1 harness path while
+`terminal` is archived/inactive. Attached viewer bytes remain raw.
 
 Do not treat automated Ghostty/Pi witnesses as final proof of a usable human
 attach primitive. They are diagnostics for launch, transcript, injection,
@@ -112,8 +111,8 @@ child process group when the child pid is available, and reports
 
 This component does not have a Sema database. Session listing and naming are
 local runtime-directory metadata (`session.name`, `session.env`, pid files,
-`control.sock`, `data.sock`). The production registry belongs in a
-`terminal` supervisor daemon with Sema-owned session state.
+`control.sock`, `data.sock`). A higher-level Sema-owned terminal registry is
+inactive while `terminal` is archived.
 
 On Niri, prevent the demo window from stealing focus with a targeted rule:
 
