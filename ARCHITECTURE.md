@@ -97,6 +97,26 @@ The archived `terminal` repo records a possible future owner for registry,
 names, Sema state, and lifecycle policy; it is not in the current V1 harness
 path.
 
+Per archived intent `of73`, terminal-cell is an abduco-style per-application
+attached wrapper — one running application in one PTY, owning the append-only
+transcript, persisting only to allow viewer detach/reattach. Process-per-
+application is the confirmed model. It is explicitly **not** a triad engine
+component nor a managed service daemon; that non-triad shape is incidental
+(terminal-cell predates the triad engine). Which component owns the terminal
+control/session surface — naming, registry, viewer-adapter, input-gate,
+`signal-terminal` control plane, durable session metadata — remains an open
+research question rather than a settled assignment.
+
+Per archived intent `ux9i`, the intended lifecycle-ownership split is
+three-way: `orchestrate` owns cell-instance lifecycle policy and ordering;
+systemd owns OS process supervision and restart-survival (cells fork via
+systemd so they survive a terminal-control restart); and `terminal-control`
+owns the durable Sema instance record — on restart it rediscovers running
+cells from Sema and reattaches their control and data sockets, realizing
+abduco survive-detach via systemd plus Sema. Consistent with §1's "no Sema
+database here": the durable instance record lives in `terminal-control`, not
+in terminal-cell.
+
 ### 1.2 · Data plane
 
 `data.sock` (mode 0600) is the raw byte plane. It accepts an `Attach` request,
