@@ -19,12 +19,12 @@ nota    = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", b
 portable-pty = "0.8"
 regex        = "1"
 rkyv         = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
-signal-frame = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", branch = "main" }
+signal-frame = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "drop-next" }
+signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", branch = "drop-next" }
 signal-hook  = "0.3"
 thiserror    = "2"
 tokio        = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
-triad-runtime = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+triad-runtime = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "drop-next" }
 vt100        = "0.16"
 
 [features]
@@ -32,7 +32,7 @@ default = []
 nota-text = []
 
 [build-dependencies]
-schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "drop-next" }
 
 [lints.rust]
 unsafe_code = "forbid"
