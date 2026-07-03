@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-use nota_next::NotaSource;
+use nota::NotaSource;
 use terminal_cell::CellResponse;
 
 struct CliFixture {

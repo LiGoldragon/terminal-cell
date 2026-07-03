@@ -15,7 +15,7 @@ path = "src/lib.rs"
 [dependencies]
 crossterm    = "0.28"
 kameo        = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", features = ["macros"] }
-nota-next    = { package = "nota", git = "https://github.com/LiGoldragon/nota-next.git", branch = "main" }
+nota    = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
 portable-pty = "0.8"
 regex        = "1"
 rkyv         = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
@@ -32,7 +32,7 @@ default = []
 nota-text = []
 
 [build-dependencies]
-schema-rust-next = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust-next.git", branch = "main" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
 
 [lints.rust]
 unsafe_code = "forbid"
