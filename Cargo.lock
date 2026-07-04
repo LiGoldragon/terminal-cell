@@ -746,7 +746,7 @@ dependencies = [
 [[package]]
 name = "schema-rust"
 version = "0.5.3"
-source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#af814e757cd84fb0b3b8cce9c0623f69b6d99b5c"
+source = "git+https://github.com/LiGoldragon/schema-rust.git?branch=drop-next#67b91f5a6a70eced5854f27c7af8b39ace7e2d88"
 dependencies = [
  "nota",
  "prettyplease",
@@ -914,7 +914,7 @@ dependencies = [
 [[package]]
 name = "signal-terminal"
 version = "0.2.2"
-source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=drop-next#632c51f34a21886bcbb01137311c8be276e6402a"
+source = "git+https://github.com/LiGoldragon/signal-terminal.git?branch=drop-next#41ef8763f5bba50394fd5c5b71fa3de60afe264e"
 dependencies = [
  "nota",
  "rkyv",
