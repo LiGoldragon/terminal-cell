@@ -265,7 +265,7 @@ end of the stream.
   `<TerminalCellProcessDaemon as DaemonEntry>::run_to_exit_code()`. The uniform
   daemon spine (single rkyv-config argument, async multi-listener bind, accept,
   request gating, peer credentials, lifecycle, exit) is emitted by
-  schema-rust-next into `src/schema/daemon.rs` from the
+  schema-rust into `src/schema/daemon.rs` from the
   `WorkingListenerTier::component_decoded()` + meta-tier daemon shape in
   `build.rs`. The daemon takes exactly one argument — a binary rkyv
   `Configuration` file (no flags; the daemon-binary-only override).

@@ -3,7 +3,7 @@
 //!
 //! The uniform daemon skeleton (argv parsing, async task-backed multi-listener
 //! binding, the decode -> serve spine, lifecycle, and the `ExitReport` entry)
-//! is emitted into `src/schema/daemon.rs` by schema-rust-next's daemon emitter.
+//! is emitted into `src/schema/daemon.rs` by schema-rust's daemon emitter.
 //! terminal-cell fills only the `ComponentDaemon` escape hatches.
 //!
 //! terminal-cell's working tier is *component-decoded*: it speaks its own
