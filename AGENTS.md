@@ -1,8 +1,5 @@
 # Agent Instructions - Terminal Cell
 
-You MUST read lore's `AGENTS.md` and the primary workspace orchestration
-protocol before editing this repository.
-
 ## Repo Role
 
 Terminal Cell is the low-level durable terminal cell primitive used under
