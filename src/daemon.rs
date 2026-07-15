@@ -529,7 +529,7 @@ impl TerminalControlConnection {
                 self.stream_signal_worker_lifecycle(subscription)
             }
             terminal_signal::Input::TerminalWorkerLifecycleRetraction(token) => {
-                let ack = terminal_signal::SubscriptionRetracted::new(token.into());
+                let ack = terminal_signal::SubscriptionRetractedReply::new(token.into());
                 SocketReplyWriter::new(&mut self.stream).write_signal_event(ack.into())
             }
             payload => {
@@ -545,7 +545,7 @@ impl TerminalControlConnection {
     ) -> io::Result<terminal_signal::Output> {
         match request {
             terminal_signal::Input::TerminalConnection(connection) => {
-                Ok(terminal_signal::TerminalReady {
+                Ok(terminal_signal::TerminalReadyReply {
                     terminal: connection.into_payload(),
                     generation: Self::signal_generation(1),
                 }
@@ -558,7 +558,7 @@ impl TerminalControlConnection {
                         InputSource::Programmatic,
                     ))
                     .map_err(Self::terminal_error)?;
-                Ok(terminal_signal::TerminalInputAccepted {
+                Ok(terminal_signal::TerminalInputAcceptedReply {
                     terminal: input.terminal,
                     generation: Self::signal_generation(1),
                 }
@@ -573,7 +573,7 @@ impl TerminalControlConnection {
                 self.runtime()
                     .block_on(async { terminal.ask(size).await })
                     .map_err(Self::actor_error)?;
-                Ok(terminal_signal::TerminalResized {
+                Ok(terminal_signal::TerminalResizedReply {
                     terminal: resize.terminal,
                     rows: resize.rows,
                     columns: resize.columns,
@@ -582,7 +582,7 @@ impl TerminalControlConnection {
                 .into())
             }
             terminal_signal::Input::TerminalDetachment(detachment) => {
-                Ok(terminal_signal::TerminalDetached {
+                Ok(terminal_signal::TerminalDetachedReply {
                     terminal: detachment.terminal,
                     generation: Self::signal_generation(1),
                     terminal_detachment_reason: detachment.terminal_detachment_reason,
@@ -591,7 +591,7 @@ impl TerminalControlConnection {
             }
             terminal_signal::Input::TerminalCapture(capture) => {
                 let snapshot = self.snapshot()?;
-                Ok(terminal_signal::TerminalCaptured {
+                Ok(terminal_signal::TerminalCapturedReply {
                     terminal: capture.into_payload(),
                     generation: Self::signal_generation(1),
                     transcript_bytes: Self::signal_transcript_bytes(snapshot.bytes()),
@@ -602,7 +602,7 @@ impl TerminalControlConnection {
                 let pattern_id = self
                     .signal_state()?
                     .register_prompt_pattern(registration.pattern.into_payload());
-                Ok(terminal_signal::PromptPatternRegistered {
+                Ok(terminal_signal::PromptPatternRegisteredReply {
                     terminal: registration.terminal,
                     pattern_identifier: pattern_id.into(),
                 }
@@ -611,7 +611,7 @@ impl TerminalControlConnection {
             terminal_signal::Input::UnregisterPromptPattern(unregistration) => {
                 self.signal_state()?
                     .unregister_prompt_pattern(unregistration.pattern_identifier.payload());
-                Ok(terminal_signal::PromptPatternUnregistered {
+                Ok(terminal_signal::PromptPatternUnregisteredReply {
                     terminal: unregistration.terminal,
                     pattern_identifier: unregistration.pattern_identifier,
                 }
@@ -619,7 +619,7 @@ impl TerminalControlConnection {
             }
             terminal_signal::Input::ListPromptPatterns(list) => {
                 let entries = self.signal_state()?.prompt_pattern_entries();
-                Ok(terminal_signal::PromptPatternList {
+                Ok(terminal_signal::PromptPatternListReply {
                     terminal: list.into_payload(),
                     entries: entries.into(),
                 }
@@ -635,7 +635,7 @@ impl TerminalControlConnection {
                 self.write_signal_injection(injection)
             }
             terminal_signal::Input::SubscribeTerminalWorkerLifecycle(subscription) => {
-                Ok(terminal_signal::TerminalRejected {
+                Ok(terminal_signal::TerminalRejectedReply {
                     terminal: subscription.into_payload(),
                     terminal_rejection_reason:
                         terminal_signal::TerminalRejectionReason::TransportFailed,
@@ -643,7 +643,7 @@ impl TerminalControlConnection {
                 .into())
             }
             terminal_signal::Input::TerminalWorkerLifecycleRetraction(token) => {
-                Ok(terminal_signal::TerminalRejected {
+                Ok(terminal_signal::TerminalRejectedReply {
                     terminal: token.into_payload(),
                     terminal_rejection_reason:
                         terminal_signal::TerminalRejectionReason::TransportFailed,
@@ -651,10 +651,10 @@ impl TerminalControlConnection {
                 .into())
             }
             terminal_signal::Input::ListSessions(_) => {
-                Ok(terminal_signal::SessionList::new(Vec::new().into()).into())
+                Ok(terminal_signal::SessionListReply::new(Vec::new().into()).into())
             }
             terminal_signal::Input::ResolveSession(resolve) => {
-                Ok(terminal_signal::TerminalRejected {
+                Ok(terminal_signal::TerminalRejectedReply {
                     terminal: terminal_signal::Terminal::new(resolve.into_payload().into_payload()),
                     terminal_rejection_reason:
                         terminal_signal::TerminalRejectionReason::TransportFailed,
@@ -666,7 +666,7 @@ impl TerminalControlConnection {
 
     fn acquire_signal_input_gate(
         &mut self,
-        acquire: terminal_signal::AcquireInputGate,
+        acquire: terminal_signal::AcquireInputGateRequest,
     ) -> io::Result<terminal_signal::Output> {
         let prompt_state = self.signal_prompt_state(
             acquire
@@ -679,7 +679,7 @@ impl TerminalControlConnection {
                 let signal_lease = Self::signal_lease(lease);
                 self.signal_state()?
                     .record_signal_lease(signal_lease.clone(), prompt_state.clone());
-                Ok(terminal_signal::GateAcquired {
+                Ok(terminal_signal::GateAcquiredReply {
                     terminal: acquire.terminal,
                     lease: signal_lease,
                     prompt_state,
@@ -687,7 +687,7 @@ impl TerminalControlConnection {
                 .into())
             }
             Err(TerminalCellError::InputGateAlreadyClosed(lease)) => {
-                Ok(terminal_signal::GateBusy {
+                Ok(terminal_signal::GateBusyReply {
                     terminal: acquire.terminal,
                     current_holder: terminal_signal::InputGateLeaseIdentifier::new(
                         lease.sequence().into_u64(),
@@ -702,14 +702,14 @@ impl TerminalControlConnection {
 
     fn release_signal_input_gate(
         &mut self,
-        release: terminal_signal::ReleaseInputGate,
+        release: terminal_signal::ReleaseInputGateRequest,
     ) -> io::Result<terminal_signal::Output> {
         if self
             .signal_state()?
             .signal_lease_prompt_state(&release.lease)
             .is_none()
         {
-            return Ok(terminal_signal::InjectionRejected {
+            return Ok(terminal_signal::InjectionRejectedReply {
                 terminal: release.terminal,
                 injection_rejection_reason: terminal_signal::InjectionRejectionReason::UnknownLease,
             }
@@ -720,7 +720,7 @@ impl TerminalControlConnection {
         match self.input_port().open_human_input(lease) {
             Ok(gate_release) => {
                 self.signal_state()?.release_signal_lease(&release.lease);
-                Ok(terminal_signal::GateReleased {
+                Ok(terminal_signal::GateReleasedReply {
                     terminal: release.terminal,
                     lease: release.lease,
                     cached_human_bytes: terminal_signal::TerminalByteCount::new(
@@ -732,7 +732,7 @@ impl TerminalControlConnection {
             }
             Err(TerminalCellError::StaleInputGateLease) => {
                 self.signal_state()?.release_signal_lease(&release.lease);
-                Ok(terminal_signal::InjectionRejected {
+                Ok(terminal_signal::InjectionRejectedReply {
                     terminal: release.terminal,
                     injection_rejection_reason:
                         terminal_signal::InjectionRejectionReason::UnknownLease,
@@ -745,14 +745,14 @@ impl TerminalControlConnection {
 
     fn write_signal_injection(
         &mut self,
-        injection: terminal_signal::WriteInjection,
+        injection: terminal_signal::WriteInjectionRequest,
     ) -> io::Result<terminal_signal::Output> {
         let prompt_state = self
             .signal_state()?
             .signal_lease_prompt_state(&injection.lease)
             .cloned();
         let Some(prompt_state) = prompt_state else {
-            return Ok(terminal_signal::InjectionRejected {
+            return Ok(terminal_signal::InjectionRejectedReply {
                 terminal: injection.terminal,
                 injection_rejection_reason: terminal_signal::InjectionRejectionReason::UnknownLease,
             }
@@ -760,7 +760,7 @@ impl TerminalControlConnection {
         };
 
         if matches!(prompt_state, terminal_signal::PromptState::Dirty(_)) {
-            return Ok(terminal_signal::InjectionRejected {
+            return Ok(terminal_signal::InjectionRejectedReply {
                 terminal: injection.terminal,
                 injection_rejection_reason: terminal_signal::InjectionRejectionReason::DirtyPrompt,
             }
@@ -774,7 +774,7 @@ impl TerminalControlConnection {
             ))
             .map_err(Self::terminal_error)?;
         let snapshot = self.snapshot()?;
-        Ok(terminal_signal::InjectionAck {
+        Ok(terminal_signal::InjectionAckReply {
             terminal: injection.terminal,
             generation: Self::signal_generation(1),
             sequence: terminal_signal::TerminalSequence::new(snapshot.last_sequence().into_u64())
@@ -785,7 +785,7 @@ impl TerminalControlConnection {
 
     fn stream_signal_worker_lifecycle(
         &mut self,
-        subscription: terminal_signal::SubscribeTerminalWorkerLifecycle,
+        subscription: terminal_signal::SubscribeTerminalWorkerLifecycleRequest,
     ) -> io::Result<()> {
         let terminal_name = subscription.into_payload();
         let terminal = self.terminal().clone();
@@ -798,7 +798,7 @@ impl TerminalControlConnection {
             })
             .map_err(Self::actor_error)?;
         SocketReplyWriter::new(&mut self.stream).write_signal_event(
-            terminal_signal::TerminalWorkerLifecycleSnapshot {
+            terminal_signal::TerminalWorkerLifecycleSnapshotReply {
                 terminal: terminal_name.clone(),
                 observations: lifecycle
                     .replay()
@@ -812,13 +812,13 @@ impl TerminalControlConnection {
         )?;
 
         while let Some(event) = lifecycle.blocking_next_live_event() {
-            SocketReplyWriter::new(&mut self.stream).write_signal_subscription_event(
-                terminal_signal::TerminalWorkerLifecycleEvent {
+            let event = terminal_signal::TerminalEvent::TerminalWorkerLifecycleEvent(
+                terminal_signal::TerminalWorkerLifecycleEventPayload {
                     terminal: terminal_name.clone(),
                     observation: Self::signal_worker_lifecycle(event).into(),
-                }
-                .into(),
-            )?;
+                },
+            );
+            SocketReplyWriter::new(&mut self.stream).write_signal_event(event.into())?;
         }
         Ok(())
     }

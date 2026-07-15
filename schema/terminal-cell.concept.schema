@@ -1,45 +1,42 @@
 {}
 
 [
-  (Capture [Transcript])
-  (Input [Programmatic Viewer])
-  (Attach [Viewer])
-  (Gate [CloseHuman OpenHuman])
-  (Resize [Terminal])
-  (Wait [Text Exit])
-  (Observe [Worker])
-  (Subscribe [Transcript])
+  Capture.CaptureRequest
+  Input.InputRequest
+  Attach.AttachRequest
+  Gate.GateRequest
+  Resize.ResizeRequest
+  Wait.WaitRequest
+  Observe.ObserveRequest
+  Subscribe.SubscribeRequest
 ]
-
-[]
 
 []
 
 {
-  Capture [(Transcript Transcript)]
-  Input [(Programmatic Programmatic) (Viewer Viewer)]
-  Attach [(Viewer Viewer)]
-  Gate [(CloseHuman CloseHuman) (OpenHuman OpenHuman)]
-  Resize [(Terminal Terminal)]
-  Wait [(Text Text) (Exit Exit)]
-  Observe [(Worker Worker)]
-  Subscribe [(Transcript Transcript)]
-  Transcript (Identifier)
-  Programmatic (Text)
-  Viewer (Identifier)
-  CloseHuman (Identifier)
-  OpenHuman (Identifier)
-  Terminal (Identifier)
-  Exit (Identifier)
-  Worker (Identifier)
-  Text (Text)
-  Identifier (u64)
-  Name (String)
-  Path (String)
-  Status [Concept Active Retired]
+  CaptureRequest.[Transcript.Transcript]
+  InputRequest.[Programmatic.Programmatic Viewer.Viewer]
+  AttachRequest.[Viewer.Viewer]
+  GateRequest.[CloseHuman.CloseHuman OpenHuman.OpenHuman]
+  ResizeRequest.[Terminal.Terminal]
+  WaitRequest.[Text.Text Exit.Exit]
+  ObserveRequest.[Worker.Worker]
+  SubscribeRequest.[Transcript.Transcript]
+  Transcript.Identifier
+  Programmatic.Text
+  Viewer.Identifier
+  CloseHuman.Identifier
+  OpenHuman.Identifier
+  Terminal.Identifier
+  Exit.Identifier
+  Worker.Identifier
+  Text.String
+  Identifier.Integer
+  Name.String
+  Path.String
+  Status.[Concept Active Retired]
 }
 
-[
-  (Version 0 1)
-  (Status Concept)
-]
+{}
+
+{}

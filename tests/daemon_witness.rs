@@ -475,7 +475,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
     daemon.wait_for_text("agent-ready");
     let registered = client
         .send_signal_request(
-            terminal_signal::RegisterPromptPattern {
+            terminal_signal::RegisterPromptPatternRequest {
                 terminal: signal_terminal("operator"),
                 pattern: signal_regex_pattern(br"agent-ready\r+\n$"),
             }
@@ -491,7 +491,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
 
     let acquired = client
         .send_signal_request(
-            terminal_signal::AcquireInputGate {
+            terminal_signal::AcquireInputGateRequest {
                 terminal: signal_terminal("operator"),
                 input_gate_reason: terminal_signal::InputGateReason::new(
                     "witness injection".to_string(),
@@ -516,7 +516,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
 
     let ack = client
         .send_signal_request(
-            terminal_signal::WriteInjection {
+            terminal_signal::WriteInjectionRequest {
                 terminal: signal_terminal("operator"),
                 lease: lease.clone(),
                 input_bytes: signal_input_bytes(b"persona-signal\r"),
@@ -532,7 +532,7 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
 
     let released = client
         .send_signal_request(
-            terminal_signal::ReleaseInputGate {
+            terminal_signal::ReleaseInputGateRequest {
                 terminal: signal_terminal("operator"),
                 lease,
             }
@@ -562,7 +562,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     daemon.wait_for_text("ready> dirty");
     let registered = client
         .send_signal_request(
-            terminal_signal::RegisterPromptPattern {
+            terminal_signal::RegisterPromptPatternRequest {
                 terminal: signal_terminal("operator"),
                 pattern: signal_regex_pattern(br"ready> "),
             }
@@ -578,7 +578,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 
     let acquired = client
         .send_signal_request(
-            terminal_signal::AcquireInputGate {
+            terminal_signal::AcquireInputGateRequest {
                 terminal: signal_terminal("operator"),
                 input_gate_reason: terminal_signal::InputGateReason::new(
                     "dirty prompt witness".to_string(),
@@ -602,7 +602,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 
     let rejected = client
         .send_signal_request(
-            terminal_signal::WriteInjection {
+            terminal_signal::WriteInjectionRequest {
                 terminal: signal_terminal("operator"),
                 lease: lease.clone(),
                 input_bytes: signal_input_bytes(b"must-not-inject\r"),
@@ -613,7 +613,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
     assert!(
         matches!(
             rejected,
-            terminal_signal::Output::InjectionRejected(terminal_signal::InjectionRejected {
+            terminal_signal::Output::InjectionRejected(terminal_signal::InjectionRejectedReply {
                 injection_rejection_reason: terminal_signal::InjectionRejectionReason::DirtyPrompt,
                 ..
             })
@@ -623,7 +623,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 
     let _ = client
         .send_signal_request(
-            terminal_signal::ReleaseInputGate {
+            terminal_signal::ReleaseInputGateRequest {
                 terminal: signal_terminal("operator"),
                 lease,
             }
@@ -633,7 +633,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
 }
 
 #[test]
-fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
+fn signal_worker_lifecycle_subscription_delivers_snapshot_then_deltas() {
     let daemon = DaemonFixture::spawn("signal-worker-lifecycle");
     daemon.wait_for_text("agent-ready");
 
@@ -644,8 +644,10 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
         .expect("subscription read timeout set");
     SocketRequestWriter::new(&mut subscription)
         .write_signal_request(
-            terminal_signal::SubscribeTerminalWorkerLifecycle::new(signal_terminal("operator"))
-                .into(),
+            terminal_signal::SubscribeTerminalWorkerLifecycleRequest::new(signal_terminal(
+                "operator",
+            ))
+            .into(),
         )
         .expect("worker lifecycle subscription request writes");
 
@@ -673,16 +675,18 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
 
     let mut viewer = daemon.open_attach_stream();
     let event = SocketReplyReader::new(&mut subscription)
-        .read_signal_subscription_event()
+        .read_signal_event()
         .expect("worker lifecycle delta arrives");
     assert!(
         matches!(
             event,
-            terminal_signal::TerminalEvent::TerminalWorkerLifecycleEvent(
-                terminal_signal::TerminalWorkerLifecycleEvent {
-                    ref observation,
-                    ..
-                }
+            terminal_signal::Output::Event(
+                terminal_signal::TerminalEvent::TerminalWorkerLifecycleEvent(
+                    terminal_signal::TerminalWorkerLifecycleEventPayload {
+                        ref observation,
+                        ..
+                    }
+                )
             ) if matches!(
                 observation.payload(),
                 terminal_signal::TerminalWorkerLifecycle::Started(
@@ -690,7 +694,7 @@ fn signal_worker_lifecycle_subscription_streams_snapshot_then_deltas() {
                 )
             )
         ),
-        "attach pump start is streamed as a Signal lifecycle delta: {event:?}"
+        "attach pump start is delivered as a Signal lifecycle event: {event:?}"
     );
     viewer
         .write_all(b"signal lifecycle stream remains separate from raw input\r")

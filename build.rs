@@ -26,7 +26,7 @@ impl SchemaBuild {
         println!("cargo:rerun-if-changed=schema/daemon.schema");
         println!("cargo:rerun-if-changed=src/schema/daemon.rs");
 
-        let plan = GenerationPlan::new(&self.crate_root, "terminal_cell", "0.1.0").with_module(
+        let plan = GenerationPlan::new(&self.crate_root, "terminal_cell", "0.2.0").with_module(
             ModuleEmission::daemon_module("daemon", Self::daemon_shape()),
         );
         GenerationDriver::new(plan)

@@ -1,15 +1,11 @@
 {}
-[ServeControl ServeData]
-[ControlServed DataServed]
+[ServeControl.ControlPlane ServeData.DataPlane]
+[ControlServed.ControlPlane DataServed.DataPlane]
 {
-  ServeControl ControlPlane
-  ServeData DataPlane
-
-  ControlServed ControlPlane
-  DataServed DataPlane
-
-  ControlSocketPath String
-  DataSocketPath String
-  ControlPlane { ControlSocketPath }
-  DataPlane { DataSocketPath }
+  ControlSocketPath.String
+  DataSocketPath.String
+  ControlPlane.{ ControlSocketPath }
+  DataPlane.{ DataSocketPath }
 }
+{}
+{}

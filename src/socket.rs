@@ -2,13 +2,12 @@ use std::io::{self, Read, Write};
 
 use signal_frame::{
     ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply as SignalReply,
-    Request as SignalRequest, SessionEpoch, StreamEventIdentifier, SubReply,
-    SubscriptionTokenInner,
+    Request as SignalRequest, SessionEpoch, SubReply,
 };
 
 /// terminal-cell's socket is a synchronous request/reply protocol with
 /// no handshake-negotiated exchange. The exchange identifier is
-/// degenerate but still required by the new `StreamingFrameBody` shape
+/// degenerate but still required by the current `ExchangeFrameBody` shape
 /// per `/177` §3. A future cutover wires real handshake + lane tracking.
 fn synthetic_exchange() -> ExchangeIdentifier {
     ExchangeIdentifier::new(
@@ -19,7 +18,7 @@ fn synthetic_exchange() -> ExchangeIdentifier {
 }
 use signal_terminal::{
     Frame as SignalTerminalFrame, FrameBody as SignalFrameBody, Input as SignalTerminalRequest,
-    Output as SignalTerminalEvent, TerminalEvent as SignalTerminalStreamEvent,
+    Output as SignalTerminalEvent,
 };
 
 use crate::{
@@ -403,17 +402,6 @@ where
         }
     }
 
-    pub fn read_signal_subscription_event(&mut self) -> io::Result<SignalTerminalStreamEvent> {
-        let frame = self.read_signal_frame()?;
-        match frame.into_body() {
-            SignalFrameBody::SubscriptionEvent { event, .. } => Ok(event),
-            other => Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("expected signal subscription event, got {other:?}"),
-            )),
-        }
-    }
-
     fn read_signal_frame(&mut self) -> io::Result<SignalTerminalFrame> {
         let mut length_bytes = [0_u8; 4];
         self.reader.read_exact(&mut length_bytes)?;
@@ -541,29 +529,6 @@ where
         let frame = SignalTerminalFrame::new(SignalFrameBody::Reply {
             exchange: synthetic_exchange(),
             reply,
-        });
-        self.write_encoded_frame(frame)
-    }
-
-    /// Emit a pushed subscription event on the daemon's lane. Per
-    /// `/177` §3 the channel's `TerminalEvent` payload travels through
-    /// the `StreamingFrameBody::SubscriptionEvent` variant, distinct
-    /// from the direct-reply path. terminal-cell's per-connection
-    /// socket model uses a degenerate token until handshake/lane
-    /// tracking lands.
-    pub fn write_signal_subscription_event(
-        &mut self,
-        event: SignalTerminalStreamEvent,
-    ) -> io::Result<()> {
-        let exchange = synthetic_exchange();
-        let frame = SignalTerminalFrame::new(SignalFrameBody::SubscriptionEvent {
-            event_identifier: StreamEventIdentifier::new(
-                exchange.session_epoch,
-                exchange.lane,
-                exchange.sequence,
-            ),
-            token: SubscriptionTokenInner::new(0),
-            event,
         });
         self.write_encoded_frame(frame)
     }
