@@ -330,25 +330,66 @@ impl TerminalWorkerReporter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// The per-session byte budget for diagnostic scrollback. The PTY remains
+/// authoritative; this is only the finite replay window exposed to clients.
+const TRANSCRIPT_SCROLLBACK_BYTE_CAPACITY: usize = 1024 * 1024;
+
 struct TerminalTranscript {
-    deltas: Vec<TranscriptDelta>,
+    deltas: VecDeque<TranscriptDelta>,
+    retained_bytes: usize,
+    byte_capacity: usize,
+    terminal_state: vt100::Parser,
+    terminal_size: TerminalSize,
     last_sequence: TerminalSequence,
 }
 
 impl TerminalTranscript {
-    fn new() -> Self {
+    fn new(terminal_size: TerminalSize) -> Self {
+        Self::with_byte_capacity(terminal_size, TRANSCRIPT_SCROLLBACK_BYTE_CAPACITY)
+    }
+
+    fn with_byte_capacity(terminal_size: TerminalSize, byte_capacity: usize) -> Self {
         Self {
-            deltas: Vec::new(),
+            deltas: VecDeque::new(),
+            retained_bytes: 0,
+            byte_capacity,
+            terminal_state: vt100::Parser::new(terminal_size.rows(), terminal_size.columns(), 0),
+            terminal_size,
             last_sequence: TerminalSequence::new(0),
         }
     }
 
     fn append(&mut self, bytes: Vec<u8>) -> TranscriptDelta {
+        self.terminal_state.process(&bytes);
         self.last_sequence = self.last_sequence.next();
         let delta = TranscriptDelta::new(self.last_sequence, bytes);
-        self.deltas.push(delta.clone());
+        self.retained_bytes = self.retained_bytes.saturating_add(delta.bytes.len());
+        self.deltas.push_back(delta.clone());
+        self.reclaim_scrollback();
         delta
+    }
+
+    fn reclaim_scrollback(&mut self) {
+        while self.retained_bytes > self.byte_capacity {
+            let Some(mut oldest) = self.deltas.pop_front() else {
+                return;
+            };
+            let excess = self.retained_bytes - self.byte_capacity;
+            if oldest.bytes.len() > excess {
+                oldest.bytes.drain(..excess);
+                self.retained_bytes -= excess;
+                self.deltas.push_front(oldest);
+                return;
+            }
+            self.retained_bytes -= oldest.bytes.len();
+        }
+    }
+
+    fn resize(&mut self, size: TerminalSize) {
+        self.terminal_size = size;
+        self.terminal_state
+            .screen_mut()
+            .set_size(size.rows(), size.columns());
     }
 
     fn snapshot(&self) -> TranscriptSnapshot {
@@ -366,6 +407,14 @@ impl TerminalTranscript {
             .filter(|delta| delta.sequence > sequence)
             .cloned()
             .collect()
+    }
+
+    fn screen_projection(&self, size: TerminalSize) -> ScreenProjection {
+        if size == self.terminal_size {
+            ScreenProjection::from_screen(self.terminal_state.screen())
+        } else {
+            ScreenProjection::from_transcript(&self.snapshot(), size)
+        }
     }
 
     fn contains(&self, needle: &[u8]) -> bool {
@@ -1497,7 +1546,7 @@ impl Actor for TerminalCell {
         Ok(Self {
             master: pair.master,
             child_killer,
-            transcript: TerminalTranscript::new(),
+            transcript: TerminalTranscript::new(args.launch.size),
             workers: TerminalWorkerObservation::new(),
             subscribers,
             worker_subscribers,
@@ -1564,6 +1613,7 @@ impl Message<TerminalSize> for TerminalCell {
         self.master
             .resize(message.into_pty_size())
             .map_err(TerminalCellError::pty)?;
+        self.transcript.resize(message);
         Ok(message)
     }
 }
@@ -1642,10 +1692,7 @@ impl Message<ScreenProjectionRequest> for TerminalCell {
         message: ScreenProjectionRequest,
         _context: &mut Context<Self, Self::Reply>,
     ) -> Self::Reply {
-        Ok(ScreenProjection::from_transcript(
-            &self.transcript.snapshot(),
-            message.size,
-        ))
+        Ok(self.transcript.screen_projection(message.size))
     }
 }
 
@@ -1708,5 +1755,46 @@ impl Message<WaitForTerminalWorkerStop> for TerminalCell {
             }
         }
         delegated
+    }
+}
+
+#[cfg(test)]
+mod transcript_retention_tests {
+    use super::{TerminalSize, TerminalTranscript};
+
+    #[test]
+    fn byte_budget_reclaims_scrollback_without_losing_current_terminal_state() {
+        let size = TerminalSize::new(2, 8);
+        let mut transcript = TerminalTranscript::with_byte_capacity(size, 8);
+
+        transcript.append(b"discarded-".to_vec());
+        transcript.append(b"\x1b[2J\x1b[Hready".to_vec());
+
+        let snapshot = transcript.snapshot();
+        assert!(
+            snapshot.bytes().len() <= 8,
+            "scrollback stays within byte budget"
+        );
+        assert!(
+            !snapshot.contains(b"discarded"),
+            "old scrollback bytes are reclaimed"
+        );
+        assert!(
+            transcript
+                .screen_projection(size)
+                .visible_text()
+                .contains("ready"),
+            "terminal-state parser preserves the active screen after scrollback reclamation"
+        );
+    }
+
+    #[test]
+    fn oversized_delta_is_trimmed_to_the_tail_of_the_byte_budget() {
+        let size = TerminalSize::new(2, 8);
+        let mut transcript = TerminalTranscript::with_byte_capacity(size, 4);
+
+        transcript.append(b"abcdefgh".to_vec());
+
+        assert_eq!(transcript.snapshot().bytes(), b"efgh");
     }
 }

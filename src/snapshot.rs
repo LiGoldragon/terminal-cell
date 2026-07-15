@@ -11,7 +11,10 @@ impl ScreenProjection {
     pub fn from_transcript(snapshot: &TranscriptSnapshot, size: TerminalSize) -> Self {
         let mut parser = vt100::Parser::new(size.rows(), size.columns(), 0);
         parser.process(snapshot.bytes());
-        let screen = parser.screen();
+        Self::from_screen(parser.screen())
+    }
+
+    pub(crate) fn from_screen(screen: &vt100::Screen) -> Self {
         let (cursor_row, cursor_column) = screen.cursor_position();
         Self {
             visible_text: screen.contents(),
