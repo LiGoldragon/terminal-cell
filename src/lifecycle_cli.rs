@@ -171,6 +171,7 @@ pub struct CellLaunched {
     pub working_directory: String,
     pub command: String,
     pub arguments: Vec<String>,
+    pub child_pid: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
@@ -342,6 +343,7 @@ impl CellLauncher {
         session.write_configuration(&self.request, working_directory.as_path())?;
         let pid = session.spawn_daemon(working_directory.as_path())?;
         session.wait_until_ready(DEFAULT_READY_TIMEOUT)?;
+        let child_pid = session.child_pid()?;
         Ok(CellResponse::CellLaunched(CellLaunched {
             cell: session.name()?,
             session_path: session.path_text(),
@@ -351,6 +353,7 @@ impl CellLauncher {
             working_directory: working_directory.to_string_lossy().into_owned(),
             command: self.request.command,
             arguments: self.request.arguments,
+            child_pid,
         }))
     }
 
