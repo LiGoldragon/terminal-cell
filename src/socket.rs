@@ -1,8 +1,7 @@
 use std::io::{self, Read, Write};
 
 use signal_frame::{
-    ExchangeIdentifier, ExchangeLane, LaneSequence, NonEmpty, Reply as SignalReply,
-    Request as SignalRequest, SessionEpoch, SubReply,
+    ExchangeIdentifier, ExchangeLane, LaneSequence, Reply as SignalReply, SessionEpoch, SubReply,
 };
 
 /// terminal-cell's socket is a synchronous request/reply protocol with
@@ -287,10 +286,7 @@ where
     }
 
     pub fn write_signal_request(&mut self, request: SignalTerminalRequest) -> io::Result<()> {
-        let frame = SignalTerminalFrame::new(SignalFrameBody::Request {
-            exchange: synthetic_exchange(),
-            request: SignalRequest::from_payload(request),
-        });
+        let frame = request.into_frame(synthetic_exchange());
         let bytes = frame.encode_length_prefixed().map_err(|error| {
             io::Error::new(
                 io::ErrorKind::InvalidData,
@@ -525,11 +521,7 @@ where
     }
 
     pub fn write_signal_event(&mut self, event: SignalTerminalEvent) -> io::Result<()> {
-        let reply = SignalReply::committed(NonEmpty::single(SubReply::Ok(event)));
-        let frame = SignalTerminalFrame::new(SignalFrameBody::Reply {
-            exchange: synthetic_exchange(),
-            reply,
-        });
+        let frame = event.into_reply_frame(synthetic_exchange());
         self.write_encoded_frame(frame)
     }
 

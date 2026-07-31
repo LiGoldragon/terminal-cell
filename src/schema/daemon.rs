@@ -107,7 +107,7 @@ impl<Daemon: ComponentDaemon> DaemonCommand<Daemon> {
                     .map_err(DaemonError::Configuration)?;
                 Ok(configuration)
             }
-            ComponentArgument::InlineNota(_) | ComponentArgument::NotaFile(_) => {
+            ComponentArgument::InlineDotos(_) | ComponentArgument::DotosFile(_) => {
                 Err(DaemonError::Argument(ArgumentError::ExpectedSignalFile))
             }
         }

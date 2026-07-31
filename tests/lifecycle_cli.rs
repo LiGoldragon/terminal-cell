@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-use dotos::DotosSource;
-use terminal_cell::CellResponse;
+use dotos::{DotosEncode, DotosSource};
+use terminal_cell::{CellRequest, CellResponse, CloseCell, LaunchCell, ObserveCell, SendLine};
 
 struct CliFixture {
     runtime: PathBuf,
@@ -81,20 +81,26 @@ fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
     let workspace = fixture.runtime.join("workspace");
     fs::create_dir_all(workspace.as_path()).expect("workspace created");
 
-    let launch = format!(
-        "LaunchCell.{{Some.cli-proof Some.{} {} [] []}}",
-        path_atom(workspace.as_path()),
-        CliFixture::binary("agent-terminal-fixture"),
-    );
+    let launch = CellRequest::LaunchCell(LaunchCell {
+        requested_name: Some("cli-proof".to_owned()),
+        working_directory: Some(path_atom(workspace.as_path())),
+        command: CliFixture::binary("agent-terminal-fixture"),
+        arguments: Vec::new(),
+        environment: Vec::new(),
+    })
+    .to_dotos();
     let launched = match fixture.successful(&launch) {
         CellResponse::CellLaunched(launched) => launched,
         other => panic!("expected CellLaunched, got {other:?}"),
     };
 
-    fixture.successful(&format!(
-        "SendLine.{{{} (hello from dotos)}}",
-        launched.session_path
-    ));
+    fixture.successful(
+        &CellRequest::SendLine(SendLine {
+            cell: launched.session_path.clone(),
+            line: "hello from dotos".to_owned(),
+        })
+        .to_dotos(),
+    );
 
     let observed = observe_until_transcript(&fixture, &launched.session_path);
     assert!(
@@ -102,7 +108,12 @@ fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
         "observation reports transcript bytes"
     );
 
-    let closed = fixture.successful(&format!("CloseCell.{{{}}}", launched.session_path));
+    let closed = fixture.successful(
+        &CellRequest::CloseCell(CloseCell {
+            cell: launched.session_path,
+        })
+        .to_dotos(),
+    );
     match closed {
         CellResponse::CellClosed(closed) => assert!(closed.terminated),
         other => panic!("expected CellClosed, got {other:?}"),
@@ -115,11 +126,17 @@ fn close_cell_terminates_daemon_and_pty_child_process_group() {
     let workspace = fixture.runtime.join("workspace");
     fs::create_dir_all(workspace.as_path()).expect("workspace created");
 
-    let launch = format!(
-        "LaunchCell.{{Some.c Some.{} {} [-c (trap '' TERM HUP; while true; do sleep 1; done)] []}}",
-        path_atom(workspace.as_path()),
-        shell_command(),
-    );
+    let launch = CellRequest::LaunchCell(LaunchCell {
+        requested_name: Some("c".to_owned()),
+        working_directory: Some(path_atom(workspace.as_path())),
+        command: shell_command(),
+        arguments: vec![
+            "-c".to_owned(),
+            "trap '' TERM HUP; while true; do sleep 1; done".to_owned(),
+        ],
+        environment: Vec::new(),
+    })
+    .to_dotos();
     let launched = match fixture.successful(&launch) {
         CellResponse::CellLaunched(launched) => launched,
         other => panic!("expected CellLaunched, got {other:?}"),
@@ -128,7 +145,12 @@ fn close_cell_terminates_daemon_and_pty_child_process_group() {
     assert!(process_is_live(launched.daemon_pid));
     assert!(process_is_live(child_pid));
 
-    let closed = match fixture.successful(&format!("CloseCell.{{{}}}", launched.session_path)) {
+    let closed = match fixture.successful(
+        &CellRequest::CloseCell(CloseCell {
+            cell: launched.session_path,
+        })
+        .to_dotos(),
+    ) {
         CellResponse::CellClosed(closed) => closed,
         other => panic!("expected CellClosed, got {other:?}"),
     };
@@ -147,7 +169,12 @@ fn observe_until_transcript(
 ) -> terminal_cell::CellObservation {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let observed = match fixture.successful(&format!("ObserveCell.{{{}}}", session_path)) {
+        let observed = match fixture.successful(
+            &CellRequest::ObserveCell(ObserveCell {
+                cell: session_path.to_owned(),
+            })
+            .to_dotos(),
+        ) {
             CellResponse::CellObserved(observed) => observed,
             other => panic!("expected CellObserved, got {other:?}"),
         };

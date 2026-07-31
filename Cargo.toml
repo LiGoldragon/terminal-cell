@@ -15,16 +15,16 @@ path = "src/lib.rs"
 [dependencies]
 crossterm    = "0.28"
 kameo        = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", features = ["macros"] }
-dotos    = { package = "dotos", git = "https://github.com/LiGoldragon/dotos.git", branch = "main" }
+dotos      = { git = "https://github.com/LiGoldragon/dotos.git", rev = "80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3" }
 portable-pty = "0.8"
 regex        = "1"
 rkyv         = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
-signal-frame = { git = "https://github.com/LiGoldragon/signal-frame.git", branch = "main" }
-signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", branch = "main" }
+signal-frame = { git = "https://github.com/LiGoldragon/signal-frame.git", rev = "ca72b2d1151f5b3df536295b2ba68f039536ec19" }
+signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", rev = "c247cbfe07313696f9053ecfb201fdf9c46e456b" }
 signal-hook  = "0.3"
 thiserror    = "2"
 tokio        = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
-triad-runtime = { git = "https://github.com/LiGoldragon/triad-runtime.git", branch = "main" }
+triad-runtime = { git = "https://github.com/LiGoldragon/triad-runtime.git", rev = "e44c07dbf31497af95eb461826bb9502115fbcfe" }
 vt100        = "0.16"
 
 [features]
@@ -32,7 +32,7 @@ default = []
 dotos-text = []
 
 [build-dependencies]
-schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }
+schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", rev = "6179a7cf1394083244dd3f3e1d2709f9ec08f7db" }
 
 [lints.rust]
 unsafe_code = "forbid"
