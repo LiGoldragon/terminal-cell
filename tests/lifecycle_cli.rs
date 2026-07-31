@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-use nota::NotaSource;
+use dotos::DotosSource;
 use terminal_cell::CellResponse;
 
 struct CliFixture {
@@ -54,7 +54,7 @@ impl CliFixture {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        NotaSource::new(&String::from_utf8_lossy(&output.stdout))
+        DotosSource::new(&String::from_utf8_lossy(&output.stdout))
             .parse::<CellResponse>()
             .expect("response decodes")
     }
@@ -76,13 +76,13 @@ impl Drop for CliFixture {
 }
 
 #[test]
-fn nota_cli_launches_sends_observes_and_closes_arbitrary_command() {
+fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
     let fixture = CliFixture::new("lifecycle");
     let workspace = fixture.runtime.join("workspace");
     fs::create_dir_all(workspace.as_path()).expect("workspace created");
 
     let launch = format!(
-        "(LaunchCell ((Some cli-proof) (Some {}) {} [] []))",
+        "LaunchCell.{{Some.cli-proof Some.{} {} [] []}}",
         path_atom(workspace.as_path()),
         CliFixture::binary("agent-terminal-fixture"),
     );
@@ -92,7 +92,7 @@ fn nota_cli_launches_sends_observes_and_closes_arbitrary_command() {
     };
 
     fixture.successful(&format!(
-        "(SendLine ({} [hello from nota]))",
+        "SendLine.{{{} (hello from dotos)}}",
         launched.session_path
     ));
 
@@ -102,7 +102,7 @@ fn nota_cli_launches_sends_observes_and_closes_arbitrary_command() {
         "observation reports transcript bytes"
     );
 
-    let closed = fixture.successful(&format!("(CloseCell ({}))", launched.session_path));
+    let closed = fixture.successful(&format!("CloseCell.{{{}}}", launched.session_path));
     match closed {
         CellResponse::CellClosed(closed) => assert!(closed.terminated),
         other => panic!("expected CellClosed, got {other:?}"),
@@ -116,7 +116,7 @@ fn close_cell_terminates_daemon_and_pty_child_process_group() {
     fs::create_dir_all(workspace.as_path()).expect("workspace created");
 
     let launch = format!(
-        "(LaunchCell ((Some c) (Some {}) {} [-c [|trap '' TERM HUP; while true; do sleep 1; done|]] []))",
+        "LaunchCell.{{Some.c Some.{} {} [-c (trap '' TERM HUP; while true; do sleep 1; done)] []}}",
         path_atom(workspace.as_path()),
         shell_command(),
     );
@@ -128,7 +128,7 @@ fn close_cell_terminates_daemon_and_pty_child_process_group() {
     assert!(process_is_live(launched.daemon_pid));
     assert!(process_is_live(child_pid));
 
-    let closed = match fixture.successful(&format!("(CloseCell ({}))", launched.session_path)) {
+    let closed = match fixture.successful(&format!("CloseCell.{{{}}}", launched.session_path)) {
         CellResponse::CellClosed(closed) => closed,
         other => panic!("expected CellClosed, got {other:?}"),
     };
@@ -147,7 +147,7 @@ fn observe_until_transcript(
 ) -> terminal_cell::CellObservation {
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        let observed = match fixture.successful(&format!("(ObserveCell ({}))", session_path)) {
+        let observed = match fixture.successful(&format!("ObserveCell.{{{}}}", session_path)) {
             CellResponse::CellObserved(observed) => observed,
             other => panic!("expected CellObserved, got {other:?}"),
         };

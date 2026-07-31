@@ -15,7 +15,7 @@ path = "src/lib.rs"
 [dependencies]
 crossterm    = "0.28"
 kameo        = { git = "https://github.com/LiGoldragon/kameo.git", branch = "main", features = ["macros"] }
-nota    = { package = "nota", git = "https://github.com/LiGoldragon/nota.git", branch = "main" }
+dotos    = { package = "dotos", git = "https://github.com/LiGoldragon/dotos.git", branch = "main" }
 portable-pty = "0.8"
 regex        = "1"
 rkyv         = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
@@ -29,7 +29,7 @@ vt100        = "0.16"
 
 [features]
 default = []
-nota-text = []
+dotos-text = []
 
 [build-dependencies]
 schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", branch = "main" }

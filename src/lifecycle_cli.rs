@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use nota::{NotaDecode, NotaEncode, NotaSource};
+use dotos::{DotosDecode, DotosEncode, DotosSource};
 
 use crate::{Configuration, ConfigurationEnvironmentVariable, TerminalCellSocketClient};
 
@@ -18,7 +18,7 @@ type CliResult<Value> = Result<Value, Box<dyn Error + Send + Sync>>;
 const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub enum CellRequest {
     LaunchCell(LaunchCell),
     SendLine(SendLine),
@@ -27,7 +27,7 @@ pub enum CellRequest {
     ObserveCell(ObserveCell),
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct LaunchCell {
     pub requested_name: Option<String>,
     pub working_directory: Option<String>,
@@ -42,7 +42,7 @@ impl LaunchCell {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct CellEnvironmentVariable {
     pub name: String,
     pub value: String,
@@ -54,7 +54,7 @@ impl CellEnvironmentVariable {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct SendLine {
     pub cell: String,
     pub line: String,
@@ -73,7 +73,7 @@ impl SendLine {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct AttachViewer {
     pub cell: String,
     pub mode: ViewerMode,
@@ -88,7 +88,7 @@ impl AttachViewer {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub enum ViewerMode {
     Interactive,
     Snapshot,
@@ -109,7 +109,7 @@ impl ViewerMode {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct ObserveCell {
     pub cell: String,
 }
@@ -121,7 +121,7 @@ impl ObserveCell {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct CloseCell {
     pub cell: String,
 }
@@ -152,7 +152,7 @@ impl CloseCell {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub enum CellResponse {
     CellLaunched(CellLaunched),
     LineSent(LineSent),
@@ -161,7 +161,7 @@ pub enum CellResponse {
     CellClosed(CellClosed),
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct CellLaunched {
     pub cell: String,
     pub session_path: String,
@@ -174,13 +174,13 @@ pub struct CellLaunched {
     pub child_pid: Option<u64>,
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct LineSent {
     pub cell: String,
     pub control_socket: String,
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct ViewerAttached {
     pub cell: String,
     pub session_path: String,
@@ -191,7 +191,7 @@ pub struct ViewerAttached {
     pub snapshot: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct CellObservation {
     pub cell: String,
     pub session_path: String,
@@ -207,7 +207,7 @@ pub struct CellObservation {
     pub worker_observation: String,
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub enum ProcessState {
     Live,
     Exited,
@@ -232,12 +232,12 @@ impl ProcessState {
     }
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub enum StallState {
     NotMeasured,
 }
 
-#[derive(Clone, Debug, Eq, NotaDecode, NotaEncode, PartialEq)]
+#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
 pub struct CellClosed {
     pub cell: String,
     pub session_path: String,
@@ -263,7 +263,7 @@ impl TerminalCellCli {
     pub fn run(&self) -> CliResult<()> {
         let request = self.input.read_request()?;
         let response = request.execute()?;
-        writeln!(io::stdout(), "{}", response.to_nota())?;
+        writeln!(io::stdout(), "{}", response.to_dotos())?;
         Ok(())
     }
 }
@@ -318,7 +318,7 @@ impl CliInput {
                 text = fs::read_to_string(path)?;
             }
         }
-        Ok(NotaSource::new(&text).parse::<CellRequest>()?)
+        Ok(DotosSource::new(&text).parse::<CellRequest>()?)
     }
 }
 

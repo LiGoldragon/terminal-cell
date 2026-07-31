@@ -2,7 +2,7 @@
 //!
 //! The daemon takes exactly one argument: a pre-generated rkyv file carrying
 //! this `Configuration` (the daemon-binary-only hard override — no flags, no
-//! inline NOTA, no `.nota` paths). The deploy/launch tool encodes the typed
+//! inline DOTOS, no `.dotos` paths). The deploy/launch tool encodes the typed
 //! configuration into binary before it reaches the daemon; the CLI test
 //! fixtures do the same with [`Configuration::to_signal_bytes`].
 
@@ -97,7 +97,7 @@ impl Configuration {
     }
 
     /// Encode the configuration to the binary rkyv form the daemon accepts as
-    /// its single startup argument (daemons never parse NOTA — hard override).
+    /// its single startup argument (daemons never parse DOTOS — hard override).
     pub fn to_signal_bytes(&self) -> Result<Vec<u8>, ConfigurationError> {
         rkyv::to_bytes::<rkyv::rancor::Error>(self)
             .map(|bytes| bytes.to_vec())

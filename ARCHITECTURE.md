@@ -283,7 +283,7 @@ end of the stream.
 - `terminal-cell-send` / `-capture` / `-wait` / `-exit` / `-resize` — thin
   command-line *clients* that take `--control-socket` and connect to a running
   daemon's control plane (client flags, not daemon flags).
-- `terminal-cell` — NOTA edge CLI for provider-agnostic lifecycle requests:
+- `terminal-cell` — DOTOS edge CLI for provider-agnostic lifecycle requests:
   launch, send-line, attach-viewer, observe, and close. It owns the rkyv
   configuration bridging needed to spawn `terminal-cell-daemon`, so callers
   do not hand-author binary daemon config.
@@ -425,7 +425,7 @@ reader; the witness section names the test that proves each.
   byte-tag CLI protocol is a local convenience for command-line clients;
   Persona control is Signal.
 - CLIs are daemon clients; they do not own the runtime or transcript.
-- The root NOTA CLI variants are `LaunchCell`, `SendLine`, `AttachViewer`,
+- The root DOTOS CLI variants are `LaunchCell`, `SendLine`, `AttachViewer`,
   `CloseCell`, and `ObserveCell`. `ObserveCell` stays provider-agnostic and
   reports only terminal/process/socket/transcript worker state.
 - `CloseCell` terminates both the daemon process group and the PTY child

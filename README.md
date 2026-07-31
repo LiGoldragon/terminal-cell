@@ -99,7 +99,7 @@ printf '(AttachViewer (/run/user/1000/terminal-cell/session-demo-... Interactive
 printf '(CloseCell (/run/user/1000/terminal-cell/session-demo-...))' | terminal-cell
 ```
 
-`terminal-cell` reads one NOTA request from stdin, or from `--file <path>`.
+`terminal-cell` reads one DOTOS request from stdin, or from `--file <path>`.
 It launches arbitrary commands by writing the daemon's binary rkyv
 configuration and spawning `terminal-cell-daemon`; callers do not construct
 that binary configuration themselves. `ObserveCell` reports only

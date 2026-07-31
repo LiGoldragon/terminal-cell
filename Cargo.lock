@@ -153,6 +153,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "dotos"
+version = "0.10.0"
+source = "git+https://github.com/LiGoldragon/dotos.git?branch=main#80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3"
+dependencies = [
+ "dotos-derive",
+ "rkyv",
+]
+
+[[package]]
+name = "dotos-derive"
+version = "0.5.0"
+source = "git+https://github.com/LiGoldragon/dotos.git?branch=main#80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "downcast-rs"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -965,8 +984,8 @@ name = "terminal-cell"
 version = "0.3.0"
 dependencies = [
  "crossterm",
+ "dotos",
  "kameo",
- "nota",
  "portable-pty",
  "regex",
  "rkyv",

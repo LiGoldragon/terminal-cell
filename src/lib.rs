@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! Low-level durable terminal cell.
 
-extern crate nota as nota;
+extern crate dotos as dotos;
 
 mod client;
 mod configuration;
