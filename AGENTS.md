@@ -19,3 +19,9 @@ message semantics, harness identity, provider usage policy, or the
 Follow the workspace Rust discipline: behavior lives on data-bearing types,
 stateful runtime planes are Kameo actors, and tests are named witnesses for
 architecture constraints.
+
+## Protos estate status
+
+Stack: correct-new destination
+Status: active component, current checkout legacy-wired
+This checkout is not proof of correct-new adoption.
