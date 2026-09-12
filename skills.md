@@ -21,14 +21,13 @@ the byte-tag CLI protocol, and `data.sock` for raw attached-viewer bytes.
 - Local CLI binaries (`-send`, `-capture`, `-wait`, `-exit`, `-resize`,
   `-resolve`) take `--control-socket` only; `-view` takes both
   `--control-socket` and `--data-socket`.
-- `terminal-cell` is the DOTOS edge for provider-agnostic cell lifecycle:
+- `terminal-cell` is the datom edge for provider-agnostic cell lifecycle:
   `LaunchCell`, `SendLine`, `AttachViewer`, `CloseCell`, and `ObserveCell`.
-  It reads stdin or `--file <path>`, emits one DOTOS reply, and translates
-  launch requests into the daemon's binary rkyv configuration. Do not call
-  this input "strict DOTOS"; it is simply DOTOS.
+  It reads stdin or `--file <path>`, emits one datom reply, and translates
+  launch requests into the daemon's binary rkyv configuration.
 - `CloseCell` owns lifecycle cleanup for both the daemon and the PTY child.
   It should terminate the daemon process group and, when available, the PTY
-  child process group; the DOTOS reply must report daemon, child, and aggregate
+  child process group; the datom reply must report daemon, child, and aggregate
   termination truthfully.
 - `ObserveCell` reports only terminal/process/PTY state such as sockets,
   daemon pid/liveness, cwd, worker observation, transcript byte offset, and

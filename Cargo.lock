@@ -165,17 +165,17 @@ dependencies = [
 
 [[package]]
 name = "datom-codec"
-version = "0.25.4"
-source = "git+https://github.com/LiGoldragon/datom-codec?rev=35d26d822870356af9b04cacfec40d85600b541d#35d26d822870356af9b04cacfec40d85600b541d"
+version = "0.26.3"
+source = "git+https://github.com/LiGoldragon/datom-codec?rev=627db67f2655efd9f786864009955005fd8ab2ad#627db67f2655efd9f786864009955005fd8ab2ad"
 dependencies = [
  "datom-codec-derive",
- "protos 0.29.0",
+ "protos 0.30.1",
 ]
 
 [[package]]
 name = "datom-codec-derive"
-version = "0.25.4"
-source = "git+https://github.com/LiGoldragon/datom-codec?rev=35d26d822870356af9b04cacfec40d85600b541d#35d26d822870356af9b04cacfec40d85600b541d"
+version = "0.26.0"
+source = "git+https://github.com/LiGoldragon/datom-codec?rev=627db67f2655efd9f786864009955005fd8ab2ad#627db67f2655efd9f786864009955005fd8ab2ad"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -187,16 +187,7 @@ name = "dotos"
 version = "0.10.0"
 source = "git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3#80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3"
 dependencies = [
- "dotos-derive 0.5.0 (git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3)",
- "rkyv",
-]
-
-[[package]]
-name = "dotos"
-version = "0.10.0"
-source = "git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3#80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3"
-dependencies = [
- "dotos-derive 0.5.0 (git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3)",
+ "dotos-derive",
  "rkyv",
 ]
 
@@ -204,16 +195,6 @@ dependencies = [
 name = "dotos-derive"
 version = "0.5.0"
 source = "git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3#80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "dotos-derive"
-version = "0.5.0"
-source = "git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3#80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -256,13 +237,13 @@ dependencies = [
 
 [[package]]
 name = "ethos-zero"
-version = "6.1.2"
-source = "git+https://github.com/LiGoldragon/ethos-zero?rev=daf007296a19ad2f9c8a1e67e102b2e3f09db327#daf007296a19ad2f9c8a1e67e102b2e3f09db327"
+version = "8.0.1"
+source = "git+https://github.com/LiGoldragon/ethos-zero?rev=de3d9928b156f2e1a92d060b7817af201abfdbef#de3d9928b156f2e1a92d060b7817af201abfdbef"
 dependencies = [
  "datom-codec",
  "prettyplease 0.3.0",
  "proc-macro2",
- "protos 0.29.0",
+ "protos 0.30.1",
  "quote",
  "rkyv",
  "syn 3.0.5",
@@ -437,12 +418,12 @@ dependencies = [
 [[package]]
 name = "kameo"
 version = "0.20.0"
-source = "git+https://github.com/LiGoldragon/kameo.git?branch=main#f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01"
+source = "git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306#3486e4f63ea4e87123476cfbdefeb12403540306"
 dependencies = [
  "downcast-rs 2.0.2",
  "dyn-clone",
  "futures",
- "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?branch=main)",
+ "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306)",
  "serde",
  "tokio",
  "tracing",
@@ -465,7 +446,7 @@ dependencies = [
 [[package]]
 name = "kameo_macros"
 version = "0.20.0"
-source = "git+https://github.com/LiGoldragon/kameo.git?branch=main#f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01"
+source = "git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306#3486e4f63ea4e87123476cfbdefeb12403540306"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -698,14 +679,14 @@ source = "git+https://github.com/LiGoldragon/protos.git?rev=9bce5ed8efadeb157811
 dependencies = [
  "content-identity",
  "name-table",
- "signal-frame 0.4.0",
+ "signal-frame",
  "structural-codec",
 ]
 
 [[package]]
 name = "protos"
-version = "0.29.0"
-source = "git+https://github.com/LiGoldragon/protos?rev=aac95b0d08a4c7eb7f73c8ea18309f9e2e89315f#aac95b0d08a4c7eb7f73c8ea18309f9e2e89315f"
+version = "0.30.1"
+source = "git+https://github.com/LiGoldragon/protos?rev=171b21f65337983ab624b7b906397a4f1f92c5a3#171b21f65337983ab624b7b906397a4f1f92c5a3"
 
 [[package]]
 name = "ptr_meta"
@@ -876,7 +857,7 @@ version = "0.3.0"
 source = "git+https://github.com/LiGoldragon/schema-language.git?rev=b834873de2a14c783f4be4f1af2dbb21f17ecd83#b834873de2a14c783f4be4f1af2dbb21f17ecd83"
 dependencies = [
  "blake3",
- "dotos 0.10.0 (git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3)",
+ "dotos",
  "rkyv",
  "thiserror 2.0.18",
 ]
@@ -886,7 +867,7 @@ name = "schema-rust"
 version = "0.10.0"
 source = "git+https://github.com/LiGoldragon/schema-rust.git?rev=6179a7cf1394083244dd3f3e1d2709f9ec08f7db#6179a7cf1394083244dd3f3e1d2709f9ec08f7db"
 dependencies = [
- "dotos 0.10.0 (git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3)",
+ "dotos",
  "prettyplease 0.2.37",
  "proc-macro2",
  "protos 0.1.0",
@@ -999,23 +980,12 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "signal-frame"
-version = "0.3.0"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?rev=ca72b2d1151f5b3df536295b2ba68f039536ec19#ca72b2d1151f5b3df536295b2ba68f039536ec19"
-dependencies = [
- "paste",
- "rkyv",
- "signal-frame-macros 0.1.1 (git+https://github.com/LiGoldragon/signal-frame.git?rev=ca72b2d1151f5b3df536295b2ba68f039536ec19)",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "signal-frame"
 version = "0.4.0"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?rev=0786fbe8caf27552afcdd5deb85bc82ec6088337#0786fbe8caf27552afcdd5deb85bc82ec6088337"
 dependencies = [
  "paste",
  "rkyv",
- "signal-frame-macros 0.1.1 (git+https://github.com/LiGoldragon/signal-frame.git?rev=0786fbe8caf27552afcdd5deb85bc82ec6088337)",
+ "signal-frame-macros",
  "thiserror 2.0.18",
 ]
 
@@ -1023,16 +993,6 @@ dependencies = [
 name = "signal-frame-macros"
 version = "0.1.1"
 source = "git+https://github.com/LiGoldragon/signal-frame.git?rev=0786fbe8caf27552afcdd5deb85bc82ec6088337#0786fbe8caf27552afcdd5deb85bc82ec6088337"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.117",
-]
-
-[[package]]
-name = "signal-frame-macros"
-version = "0.1.1"
-source = "git+https://github.com/LiGoldragon/signal-frame.git?rev=ca72b2d1151f5b3df536295b2ba68f039536ec19#ca72b2d1151f5b3df536295b2ba68f039536ec19"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1072,8 +1032,8 @@ dependencies = [
 
 [[package]]
 name = "signal-terminal"
-version = "1.0.1"
-source = "git+https://github.com/LiGoldragon/signal-terminal.git?rev=ddbd3237a57e3ca19b5f6208a93770c5eee73aa3#ddbd3237a57e3ca19b5f6208a93770c5eee73aa3"
+version = "2.0.1"
+source = "git+https://github.com/LiGoldragon/signal-terminal.git?rev=bb6963650cdd507c25b3650d85fd3bfc232f9a07#bb6963650cdd507c25b3650d85fd3bfc232f9a07"
 dependencies = [
  "ethos-zero",
  "rkyv",
@@ -1143,16 +1103,16 @@ dependencies = [
 
 [[package]]
 name = "terminal-cell"
-version = "1.0.0"
+version = "2.0.0"
 dependencies = [
  "crossterm",
- "dotos 0.10.0 (git+https://github.com/LiGoldragon/dotos.git?rev=80c7b17f7ad3cf547d2624c6a243e5de5f85c9f3)",
- "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?branch=main)",
+ "datom-codec",
+ "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306)",
  "portable-pty",
+ "protos 0.30.1",
  "regex",
  "rkyv",
  "schema-rust",
- "signal-frame 0.3.0",
  "signal-hook",
  "signal-terminal",
  "thiserror 2.0.18",
@@ -1291,7 +1251,7 @@ dependencies = [
  "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
  "rkyv",
  "rustix 1.1.4",
- "signal-frame 0.4.0",
+ "signal-frame",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -1304,7 +1264,7 @@ dependencies = [
  "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
  "rkyv",
  "rustix 1.1.4",
- "signal-frame 0.4.0",
+ "signal-frame",
  "thiserror 2.0.18",
  "tokio",
 ]

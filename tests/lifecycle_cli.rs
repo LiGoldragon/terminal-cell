@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
-use dotos::{DotosEncode, DotosSource};
+use datom_codec::{Actualizing, Budget, Datomizable, Path as DatomPath, Potential};
+use protos::{Protosizable, ReaderBudget, Textualizable};
 use terminal_cell::{CellRequest, CellResponse, CloseCell, LaunchCell, ObserveCell, SendLine};
 
 struct CliFixture {
@@ -54,9 +55,16 @@ impl CliFixture {
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
         );
-        DotosSource::new(&String::from_utf8_lossy(&output.stdout))
-            .parse::<CellResponse>()
-            .expect("response decodes")
+        Potential::<CellResponse>::from(String::from_utf8_lossy(&output.stdout).into_owned())
+            .actualize(&mut Budget {
+                remaining: 65_536,
+                reader: ReaderBudget {
+                    remaining: 1_048_576,
+                },
+                depth: 0,
+                maximum_depth: 64,
+            })
+            .expect("response composes")
     }
 
     fn binary(name: &str) -> String {
@@ -76,7 +84,7 @@ impl Drop for CliFixture {
 }
 
 #[test]
-fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
+fn datom_cli_launches_sends_observes_and_closes_arbitrary_command() {
     let fixture = CliFixture::new("lifecycle");
     let workspace = fixture.runtime.join("workspace");
     fs::create_dir_all(workspace.as_path()).expect("workspace created");
@@ -88,7 +96,9 @@ fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
         arguments: Vec::new(),
         environment: Vec::new(),
     })
-    .to_dotos();
+    .datomize(DatomPath::new())
+    .protosize()
+    .textualize();
     let launched = match fixture.successful(&launch) {
         CellResponse::CellLaunched(launched) => launched,
         other => panic!("expected CellLaunched, got {other:?}"),
@@ -97,9 +107,11 @@ fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
     fixture.successful(
         &CellRequest::SendLine(SendLine {
             cell: launched.session_path.clone(),
-            line: "hello from dotos".to_owned(),
+            line: "hello from datom".to_owned(),
         })
-        .to_dotos(),
+        .datomize(DatomPath::new())
+        .protosize()
+        .textualize(),
     );
 
     let observed = observe_until_transcript(&fixture, &launched.session_path);
@@ -112,7 +124,9 @@ fn dotos_cli_launches_sends_observes_and_closes_arbitrary_command() {
         &CellRequest::CloseCell(CloseCell {
             cell: launched.session_path,
         })
-        .to_dotos(),
+        .datomize(DatomPath::new())
+        .protosize()
+        .textualize(),
     );
     match closed {
         CellResponse::CellClosed(closed) => assert!(closed.terminated),
@@ -136,7 +150,9 @@ fn close_cell_terminates_daemon_and_pty_child_process_group() {
         ],
         environment: Vec::new(),
     })
-    .to_dotos();
+    .datomize(DatomPath::new())
+    .protosize()
+    .textualize();
     let launched = match fixture.successful(&launch) {
         CellResponse::CellLaunched(launched) => launched,
         other => panic!("expected CellLaunched, got {other:?}"),
@@ -149,7 +165,9 @@ fn close_cell_terminates_daemon_and_pty_child_process_group() {
         &CellRequest::CloseCell(CloseCell {
             cell: launched.session_path,
         })
-        .to_dotos(),
+        .datomize(DatomPath::new())
+        .protosize()
+        .textualize(),
     ) {
         CellResponse::CellClosed(closed) => closed,
         other => panic!("expected CellClosed, got {other:?}"),
@@ -173,7 +191,9 @@ fn observe_until_transcript(
             &CellRequest::ObserveCell(ObserveCell {
                 cell: session_path.to_owned(),
             })
-            .to_dotos(),
+            .datomize(DatomPath::new())
+            .protosize()
+            .textualize(),
         ) {
             CellResponse::CellObserved(observed) => observed,
             other => panic!("expected CellObserved, got {other:?}"),
@@ -193,15 +213,15 @@ fn shell_command() -> String {
     env::var("TERMINAL_CELL_TEST_SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
 }
 
-fn child_pid(session_path: &str) -> u64 {
+fn child_pid(session_path: &str) -> i64 {
     fs::read_to_string(Path::new(session_path).join("child.pid"))
         .expect("child pid file exists")
         .trim()
-        .parse::<u64>()
+        .parse::<i64>()
         .expect("child pid parses")
 }
 
-fn process_is_live(pid: u64) -> bool {
+fn process_is_live(pid: i64) -> bool {
     let path = Path::new("/proc").join(pid.to_string());
     if !path.exists() {
         return false;

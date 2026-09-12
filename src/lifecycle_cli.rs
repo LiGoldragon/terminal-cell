@@ -9,7 +9,8 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use dotos::{DotosDecode, DotosEncode, DotosSource};
+use datom_codec::{Actualizing, Budget, Compositional, Datomizable, Path as DatomPath, Potential};
+use protos::{Protosizable, ReaderBudget, Textualizable};
 
 use crate::{Configuration, ConfigurationEnvironmentVariable, TerminalCellSocketClient};
 
@@ -17,8 +18,11 @@ type CliResult<Value> = Result<Value, Box<dyn Error + Send + Sync>>;
 
 const DEFAULT_READY_TIMEOUT: Duration = Duration::from_secs(10);
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
+const REQUEST_COMPOSITION_NODES: i64 = 65_536;
+const REQUEST_READER_NODES: usize = 1_048_576;
+const REQUEST_COMPOSITION_DEPTH: i64 = 64;
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub enum CellRequest {
     LaunchCell(LaunchCell),
     SendLine(SendLine),
@@ -27,7 +31,7 @@ pub enum CellRequest {
     ObserveCell(ObserveCell),
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct LaunchCell {
     pub requested_name: Option<String>,
     pub working_directory: Option<String>,
@@ -42,7 +46,7 @@ impl LaunchCell {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellEnvironmentVariable {
     pub name: String,
     pub value: String,
@@ -54,7 +58,7 @@ impl CellEnvironmentVariable {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct SendLine {
     pub cell: String,
     pub line: String,
@@ -73,7 +77,7 @@ impl SendLine {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct AttachViewer {
     pub cell: String,
     pub mode: ViewerMode,
@@ -88,7 +92,7 @@ impl AttachViewer {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub enum ViewerMode {
     Interactive,
     Snapshot,
@@ -109,7 +113,7 @@ impl ViewerMode {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct ObserveCell {
     pub cell: String,
 }
@@ -121,7 +125,7 @@ impl ObserveCell {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct CloseCell {
     pub cell: String,
 }
@@ -152,7 +156,7 @@ impl CloseCell {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub enum CellResponse {
     CellLaunched(CellLaunched),
     LineSent(LineSent),
@@ -161,60 +165,60 @@ pub enum CellResponse {
     CellClosed(CellClosed),
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellLaunched {
     pub cell: String,
     pub session_path: String,
     pub control_socket: String,
     pub data_socket: String,
-    pub daemon_pid: u64,
+    pub daemon_pid: i64,
     pub working_directory: String,
     pub command: String,
     pub arguments: Vec<String>,
-    pub child_pid: Option<u64>,
+    pub child_pid: Option<i64>,
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct LineSent {
     pub cell: String,
     pub control_socket: String,
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct ViewerAttached {
     pub cell: String,
     pub session_path: String,
     pub control_socket: String,
     pub data_socket: String,
-    pub viewer_pid: Option<u64>,
+    pub viewer_pid: Option<i64>,
     pub mode: ViewerMode,
     pub snapshot: Option<String>,
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellObservation {
     pub cell: String,
     pub session_path: String,
     pub control_socket: String,
     pub data_socket: String,
-    pub daemon_pid: u64,
+    pub daemon_pid: i64,
     pub daemon_state: ProcessState,
     pub working_directory: String,
     pub exit_state: Option<String>,
     pub stall_state: StallState,
-    pub transcript_offset: u64,
-    pub transcript_bytes: u64,
+    pub transcript_offset: i64,
+    pub transcript_bytes: i64,
     pub worker_observation: String,
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub enum ProcessState {
     Live,
     Exited,
 }
 
 impl ProcessState {
-    fn from_pid(pid: u64) -> Self {
+    fn from_pid(pid: i64) -> Self {
         let path = Path::new("/proc").join(pid.to_string());
         if !path.exists() {
             return Self::Exited;
@@ -232,17 +236,17 @@ impl ProcessState {
     }
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub enum StallState {
     NotMeasured,
 }
 
-#[derive(Clone, Debug, Eq, DotosDecode, DotosEncode, PartialEq)]
+#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellClosed {
     pub cell: String,
     pub session_path: String,
-    pub daemon_pid: u64,
-    pub child_pid: Option<u64>,
+    pub daemon_pid: i64,
+    pub child_pid: Option<i64>,
     pub was_live: bool,
     pub terminated: bool,
     pub daemon_terminated: bool,
@@ -263,7 +267,11 @@ impl TerminalCellCli {
     pub fn run(&self) -> CliResult<()> {
         let request = self.input.read_request()?;
         let response = request.execute()?;
-        writeln!(io::stdout(), "{}", response.to_dotos())?;
+        writeln!(
+            io::stdout(),
+            "{}",
+            response.datomize(DatomPath::new()).protosize().textualize()
+        )?;
         Ok(())
     }
 }
@@ -318,7 +326,22 @@ impl CliInput {
                 text = fs::read_to_string(path)?;
             }
         }
-        Ok(DotosSource::new(&text).parse::<CellRequest>()?)
+        Potential::<CellRequest>::from(text)
+            .actualize(&mut Budget {
+                remaining: REQUEST_COMPOSITION_NODES,
+                reader: ReaderBudget {
+                    remaining: REQUEST_READER_NODES,
+                },
+                depth: 0,
+                maximum_depth: REQUEST_COMPOSITION_DEPTH,
+            })
+            .map_err(|error| {
+                format!(
+                    "terminal-cell request is not a datom CellRequest: {}",
+                    error.datomize(DatomPath::new()).protosize().textualize()
+                )
+                .into()
+            })
     }
 }
 
@@ -436,7 +459,7 @@ impl RuntimeSession {
         Ok(())
     }
 
-    fn spawn_daemon(&self, working_directory: &Path) -> CliResult<u64> {
+    fn spawn_daemon(&self, working_directory: &Path) -> CliResult<i64> {
         let stdout = OpenOptions::new()
             .create(true)
             .append(true)
@@ -453,7 +476,7 @@ impl RuntimeSession {
             .stderr(Stdio::from(stderr))
             .process_group(0);
         let child = command.spawn()?;
-        let pid = u64::from(child.id());
+        let pid = i64::from(child.id());
         fs::write(self.path.join("daemon.pid"), pid.to_string())?;
         Ok(pid)
     }
@@ -508,8 +531,8 @@ impl RuntimeSession {
             working_directory: self.working_directory()?,
             exit_state: WorkerObservationText::new(&worker_observation).exit_state(),
             stall_state: StallState::NotMeasured,
-            transcript_offset: transcript.len() as u64,
-            transcript_bytes: transcript.len() as u64,
+            transcript_offset: transcript.len() as i64,
+            transcript_bytes: transcript.len() as i64,
             worker_observation,
         })
     }
@@ -518,15 +541,15 @@ impl RuntimeSession {
         TerminalCellSocketClient::for_control_only(self.control_socket())
     }
 
-    fn daemon_pid(&self) -> CliResult<u64> {
+    fn daemon_pid(&self) -> CliResult<i64> {
         let text = fs::read_to_string(self.path.join("daemon.pid"))?;
-        Ok(text.trim().parse::<u64>()?)
+        Ok(text.trim().parse::<i64>()?)
     }
 
-    fn child_pid(&self) -> CliResult<Option<u64>> {
+    fn child_pid(&self) -> CliResult<Option<i64>> {
         let path = self.child_process_identifier_path();
         match fs::read_to_string(path) {
-            Ok(text) => Ok(Some(text.trim().parse::<u64>()?)),
+            Ok(text) => Ok(Some(text.trim().parse::<i64>()?)),
             Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -597,15 +620,15 @@ impl RuntimeSession {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ProcessHandle {
-    pid: u64,
+    pid: i64,
 }
 
 impl ProcessHandle {
-    fn new(pid: u64) -> Self {
+    fn new(pid: i64) -> Self {
         Self { pid }
     }
 
-    const fn pid(self) -> u64 {
+    const fn pid(self) -> i64 {
         self.pid
     }
 
@@ -688,7 +711,7 @@ enum SignalTarget {
 }
 
 impl SignalTarget {
-    fn argument(self, pid: u64) -> String {
+    fn argument(self, pid: i64) -> String {
         match self {
             Self::Process => pid.to_string(),
             Self::ProcessGroup => format!("-{pid}"),
@@ -769,7 +792,7 @@ impl ViewerProcess {
         let child = Command::new(RuntimeSession::viewer_binary()?)
             .args(self.mode.arguments(&self.session))
             .spawn()?;
-        Ok(self.reply(Some(u64::from(child.id())), None))
+        Ok(self.reply(Some(i64::from(child.id())), None))
     }
 
     fn print_snapshot(&self) -> CliResult<ViewerAttached> {
@@ -790,7 +813,7 @@ impl ViewerProcess {
         }
     }
 
-    fn reply(&self, viewer_pid: Option<u64>, snapshot: Option<String>) -> ViewerAttached {
+    fn reply(&self, viewer_pid: Option<i64>, snapshot: Option<String>) -> ViewerAttached {
         ViewerAttached {
             cell: self.session.name().unwrap_or_else(|_| String::new()),
             session_path: self.session.path_text(),
