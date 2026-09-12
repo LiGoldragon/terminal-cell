@@ -418,40 +418,15 @@ dependencies = [
 [[package]]
 name = "kameo"
 version = "0.20.0"
-source = "git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306#3486e4f63ea4e87123476cfbdefeb12403540306"
-dependencies = [
- "downcast-rs 2.0.2",
- "dyn-clone",
- "futures",
- "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306)",
- "serde",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "kameo"
-version = "0.20.0"
 source = "git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01#f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01"
 dependencies = [
  "downcast-rs 2.0.2",
  "dyn-clone",
  "futures",
- "kameo_macros 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
+ "kameo_macros",
  "serde",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "kameo_macros"
-version = "0.20.0"
-source = "git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306#3486e4f63ea4e87123476cfbdefeb12403540306"
-dependencies = [
- "heck",
- "proc-macro2",
- "quote",
- "syn 2.0.117",
 ]
 
 [[package]]
@@ -1107,7 +1082,7 @@ version = "2.0.0"
 dependencies = [
  "crossterm",
  "datom-codec",
- "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=3486e4f63ea4e87123476cfbdefeb12403540306)",
+ "kameo",
  "portable-pty",
  "protos 0.30.1",
  "regex",
@@ -1248,7 +1223,7 @@ name = "triad-runtime"
 version = "0.8.0"
 source = "git+https://github.com/LiGoldragon/triad-runtime.git?rev=e44c07dbf314#e44c07dbf31497af95eb461826bb9502115fbcfe"
 dependencies = [
- "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
+ "kameo",
  "rkyv",
  "rustix 1.1.4",
  "signal-frame",
@@ -1261,7 +1236,7 @@ name = "triad-runtime"
 version = "0.8.0"
 source = "git+https://github.com/LiGoldragon/triad-runtime.git?rev=e44c07dbf31497af95eb461826bb9502115fbcfe#e44c07dbf31497af95eb461826bb9502115fbcfe"
 dependencies = [
- "kameo 0.20.0 (git+https://github.com/LiGoldragon/kameo.git?rev=f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01)",
+ "kameo",
  "rkyv",
  "rustix 1.1.4",
  "signal-frame",
