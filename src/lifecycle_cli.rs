@@ -9,7 +9,7 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use datom_codec::{Actualizing, Budget, Compositional, Datomizable, Path as DatomPath, Potential};
+use datom_codec::{Actualizing, Budget, Composing, Datomizable, Path as DatomPath, Potential};
 use protos::{Protosizable, ReaderBudget, Textualizable};
 
 use crate::{Configuration, ConfigurationEnvironmentVariable, TerminalCellSocketClient};
@@ -22,7 +22,7 @@ const REQUEST_COMPOSITION_NODES: i64 = 65_536;
 const REQUEST_READER_NODES: usize = 1_048_576;
 const REQUEST_COMPOSITION_DEPTH: i64 = 64;
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub enum CellRequest {
     LaunchCell(LaunchCell),
     SendLine(SendLine),
@@ -31,7 +31,7 @@ pub enum CellRequest {
     ObserveCell(ObserveCell),
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct LaunchCell {
     pub requested_name: Option<String>,
     pub working_directory: Option<String>,
@@ -46,7 +46,7 @@ impl LaunchCell {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellEnvironmentVariable {
     pub name: String,
     pub value: String,
@@ -58,7 +58,7 @@ impl CellEnvironmentVariable {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct SendLine {
     pub cell: String,
     pub line: String,
@@ -77,7 +77,7 @@ impl SendLine {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct AttachViewer {
     pub cell: String,
     pub mode: ViewerMode,
@@ -92,7 +92,7 @@ impl AttachViewer {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub enum ViewerMode {
     Interactive,
     Snapshot,
@@ -113,7 +113,7 @@ impl ViewerMode {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct ObserveCell {
     pub cell: String,
 }
@@ -125,7 +125,7 @@ impl ObserveCell {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct CloseCell {
     pub cell: String,
 }
@@ -156,7 +156,7 @@ impl CloseCell {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub enum CellResponse {
     CellLaunched(CellLaunched),
     LineSent(LineSent),
@@ -165,7 +165,7 @@ pub enum CellResponse {
     CellClosed(CellClosed),
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellLaunched {
     pub cell: String,
     pub session_path: String,
@@ -178,13 +178,13 @@ pub struct CellLaunched {
     pub child_pid: Option<i64>,
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct LineSent {
     pub cell: String,
     pub control_socket: String,
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct ViewerAttached {
     pub cell: String,
     pub session_path: String,
@@ -195,7 +195,7 @@ pub struct ViewerAttached {
     pub snapshot: Option<String>,
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellObservation {
     pub cell: String,
     pub session_path: String,
@@ -211,7 +211,7 @@ pub struct CellObservation {
     pub worker_observation: String,
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub enum ProcessState {
     Live,
     Exited,
@@ -236,12 +236,12 @@ impl ProcessState {
     }
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub enum StallState {
     NotMeasured,
 }
 
-#[derive(Clone, Compositional, Datomizable, Debug, Eq, PartialEq)]
+#[derive(Clone, Composing, Datomizable, Debug, Eq, PartialEq)]
 pub struct CellClosed {
     pub cell: String,
     pub session_path: String,

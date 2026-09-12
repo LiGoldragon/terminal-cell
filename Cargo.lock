@@ -165,8 +165,8 @@ dependencies = [
 
 [[package]]
 name = "datom-codec"
-version = "0.26.3"
-source = "git+https://github.com/LiGoldragon/datom-codec?rev=627db67f2655efd9f786864009955005fd8ab2ad#627db67f2655efd9f786864009955005fd8ab2ad"
+version = "0.27.0"
+source = "git+https://github.com/LiGoldragon/datom-codec?rev=6dccc76b75918a91d3370a9d4fe88aa7dd567876#6dccc76b75918a91d3370a9d4fe88aa7dd567876"
 dependencies = [
  "datom-codec-derive",
  "protos 0.30.1",
@@ -174,8 +174,8 @@ dependencies = [
 
 [[package]]
 name = "datom-codec-derive"
-version = "0.26.0"
-source = "git+https://github.com/LiGoldragon/datom-codec?rev=627db67f2655efd9f786864009955005fd8ab2ad#627db67f2655efd9f786864009955005fd8ab2ad"
+version = "0.27.0"
+source = "git+https://github.com/LiGoldragon/datom-codec?rev=6dccc76b75918a91d3370a9d4fe88aa7dd567876#6dccc76b75918a91d3370a9d4fe88aa7dd567876"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -237,8 +237,8 @@ dependencies = [
 
 [[package]]
 name = "ethos-zero"
-version = "8.0.1"
-source = "git+https://github.com/LiGoldragon/ethos-zero?rev=de3d9928b156f2e1a92d060b7817af201abfdbef#de3d9928b156f2e1a92d060b7817af201abfdbef"
+version = "9.0.0"
+source = "git+https://github.com/LiGoldragon/ethos-zero?rev=b232d35e03011161fe7ec9129ad99a9914413348#b232d35e03011161fe7ec9129ad99a9914413348"
 dependencies = [
  "datom-codec",
  "prettyplease 0.3.0",
@@ -1007,8 +1007,8 @@ dependencies = [
 
 [[package]]
 name = "signal-terminal"
-version = "2.0.1"
-source = "git+https://github.com/LiGoldragon/signal-terminal.git?rev=bb6963650cdd507c25b3650d85fd3bfc232f9a07#bb6963650cdd507c25b3650d85fd3bfc232f9a07"
+version = "3.0.0"
+source = "git+https://github.com/LiGoldragon/signal-terminal.git?rev=82ffb06a0c3cf2af31d4a0e59e1e15dd5efa5905#82ffb06a0c3cf2af31d4a0e59e1e15dd5efa5905"
 dependencies = [
  "ethos-zero",
  "rkyv",
@@ -1078,7 +1078,7 @@ dependencies = [
 
 [[package]]
 name = "terminal-cell"
-version = "2.0.0"
+version = "3.0.0"
 dependencies = [
  "crossterm",
  "datom-codec",
