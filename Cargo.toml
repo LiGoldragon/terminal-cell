@@ -29,7 +29,6 @@ vt100        = "0.16"
 
 [features]
 default = []
-dotos-text = []
 
 [build-dependencies]
 schema-rust = { package = "schema-rust", git = "https://github.com/LiGoldragon/schema-rust.git", rev = "6179a7cf1394083244dd3f3e1d2709f9ec08f7db" }
