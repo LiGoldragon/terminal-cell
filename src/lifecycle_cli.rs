@@ -326,12 +326,13 @@ impl CliInput {
                 text = fs::read_to_string(path)?;
             }
         }
+        let reader = ReaderBudget::try_from(REQUEST_READER_NODES).map_err(|error| {
+            format!("terminal-cell request reader budget is invalid: {error:?}")
+        })?;
         Potential::<CellRequest>::from(text)
             .actualize(&mut Budget {
                 remaining: REQUEST_COMPOSITION_NODES,
-                reader: ReaderBudget {
-                    remaining: REQUEST_READER_NODES,
-                },
+                reader,
                 depth: 0,
                 maximum_depth: REQUEST_COMPOSITION_DEPTH,
             })

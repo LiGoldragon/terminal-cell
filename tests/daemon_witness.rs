@@ -19,25 +19,27 @@ fn signal_bytes(bytes: &[u8]) -> Vec<i64> {
 }
 
 fn signal_terminal(name: &str) -> terminal_signal::Terminal {
-    name.to_string()
+    terminal_signal::Terminal(terminal_signal::TerminalName(name.to_string()))
 }
 
 fn signal_regex_pattern(bytes: &[u8]) -> terminal_signal::Pattern {
-    terminal_signal::PromptPattern::RegexSuffix(signal_bytes(bytes))
+    terminal_signal::Pattern(terminal_signal::PromptPattern::RegexSuffix(
+        terminal_signal::PromptPatternBytes(signal_bytes(bytes)),
+    ))
 }
 
 fn signal_input_bytes(bytes: &[u8]) -> terminal_signal::InputBytes {
-    signal_bytes(bytes)
+    terminal_signal::InputBytes(terminal_signal::TerminalInputBytes(signal_bytes(bytes)))
 }
 
 fn signal_prompt_identifier_selection(
     pattern_identifier: terminal_signal::PatternIdentifier,
 ) -> terminal_signal::PromptPatternIdentifierSelection {
-    Some(pattern_identifier)
+    terminal_signal::PromptPatternIdentifierSelection(Some(pattern_identifier.0))
 }
 
 fn signal_cached_human_byte_count(bytes: &terminal_signal::CachedHumanBytes) -> u64 {
-    *bytes as u64
+    bytes.0.0 as u64
 }
 
 struct DaemonFixture {
@@ -489,7 +491,9 @@ fn signal_control_plane_acquires_gate_injects_releases_and_replays_human_bytes()
         .send_signal_request(terminal_signal::Query::AcquireInputGate(
             terminal_signal::AcquireInputGateRequest {
                 terminal: signal_terminal("operator"),
-                input_gate_reason: "witness injection".to_string(),
+                input_gate_reason: terminal_signal::InputGateReason(
+                    "witness injection".to_string(),
+                ),
                 prompt_pattern_identifier_selection: signal_prompt_identifier_selection(pattern_id),
             },
         ))
@@ -570,7 +574,9 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
         .send_signal_request(terminal_signal::Query::AcquireInputGate(
             terminal_signal::AcquireInputGateRequest {
                 terminal: signal_terminal("operator"),
-                input_gate_reason: "dirty prompt witness".to_string(),
+                input_gate_reason: terminal_signal::InputGateReason(
+                    "dirty prompt witness".to_string(),
+                ),
                 prompt_pattern_identifier_selection: signal_prompt_identifier_selection(pattern_id),
             },
         ))
@@ -579,7 +585,7 @@ fn signal_dirty_prompt_rejects_write_injection_by_default() {
         terminal_signal::Response::GateAcquired(acquired) => {
             assert_eq!(
                 acquired.prompt_state,
-                terminal_signal::PromptState::Dirty(5),
+                terminal_signal::PromptState::Dirty(terminal_signal::TerminalByteCount(5)),
                 "regex suffix prompt reports trailing dirty bytes"
             );
             acquired.lease
@@ -641,7 +647,7 @@ fn signal_worker_lifecycle_subscription_delivers_snapshot_then_deltas() {
     match snapshot {
         terminal_signal::Response::TerminalWorkerLifecycleSnapshot(snapshot) => {
             assert!(
-                snapshot.observations.iter().any(|observation| matches!(
+                snapshot.observations.0.iter().any(|observation| matches!(
                     observation,
                     terminal_signal::TerminalWorkerLifecycle::Started(
                         terminal_signal::TerminalWorkerKind::InputWriter
@@ -668,7 +674,7 @@ fn signal_worker_lifecycle_subscription_delivers_snapshot_then_deltas() {
                     }
                 )
             ) if matches!(
-                observation,
+                &observation.0,
                 terminal_signal::TerminalWorkerLifecycle::Started(
                     terminal_signal::TerminalWorkerKind::AttachConnectionPump
                 )

@@ -58,9 +58,7 @@ impl CliFixture {
         Potential::<CellResponse>::from(String::from_utf8_lossy(&output.stdout).into_owned())
             .actualize(&mut Budget {
                 remaining: 65_536,
-                reader: ReaderBudget {
-                    remaining: 1_048_576,
-                },
+                reader: ReaderBudget::try_from(1_048_576usize).expect("reader budget"),
                 depth: 0,
                 maximum_depth: 64,
             })

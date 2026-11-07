@@ -1,6 +1,6 @@
 [package]
 name         = "terminal-cell"
-version      = "3.0.1"
+version      = "3.1.0"
 edition      = "2024"
 rust-version = "1.89"
 license      = "MIT OR Apache-2.0"
@@ -14,14 +14,14 @@ path = "src/lib.rs"
 
 [dependencies]
 crossterm       = "0.28"
-datom-codec     = { git = "https://github.com/LiGoldragon/datom-codec", rev = "09e2a9d52bf7f2f11e51d15cb6c3177f72c6c927" }
+datom-codec     = { git = "https://github.com/LiGoldragon/datom-codec", rev = "eabead4" }
 kameo           = { git = "https://github.com/LiGoldragon/kameo.git", rev = "f491b45d7dcb55e5837eddde3d5d7ca8ceaa9f01", features = ["macros"] }
 portable-pty    = "0.8"
-protos          = { git = "https://github.com/LiGoldragon/protos", rev = "1febca7836bf8d5f5973a302fdd50aa9c84c159b" }
+protos          = { git = "https://github.com/LiGoldragon/protos", rev = "3c7ade3" }
 regex           = "1"
 rkyv            = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 signal-hook     = "0.3"
-signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", rev = "82ffb06a0c3cf2af31d4a0e59e1e15dd5efa5905" }
+signal-terminal = { git = "https://github.com/LiGoldragon/signal-terminal.git", rev = "428d663" }
 thiserror       = "2"
 tokio           = { version = "1", features = ["io-util", "macros", "rt-multi-thread", "sync", "time"] }
 triad-runtime   = { git = "https://github.com/LiGoldragon/triad-runtime.git", rev = "e44c07dbf31497af95eb461826bb9502115fbcfe" }
