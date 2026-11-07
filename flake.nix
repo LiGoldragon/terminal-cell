@@ -86,6 +86,13 @@
               cargoTestExtraArgs = "--test daemon_contract_truth";
             }
           );
+          wire-witness = craneLib.cargoTest (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+              cargoTestExtraArgs = "--test wire_witness -- --nocapture";
+            }
+          );
           fmt = craneLib.cargoFmt { inherit src; };
           clippy = craneLib.cargoClippy (
             commonArgs
